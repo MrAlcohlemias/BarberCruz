@@ -1,6 +1,6 @@
 # Barber Cruz
 
-Web de reservas en español con tema oscuro en negro y gris, diseñada para móvil e instalable como aplicación en la pantalla de inicio. Incluye una portada, perfiles con foto de la galería o avatar, reservas, historial, Club Cruz y un panel para el barbero.
+Web de reservas en español con tema oscuro en negro y gris, diseñada para móvil e instalable como aplicación en la pantalla de inicio. Incluye una portada, perfiles con foto personal o avatar, reservas, historial, Club Cruz, una galería pública de cortes y un panel para el barbero.
 
 El corte inicial cuesta **7 €** y dura **45 minutos**. Tras **7 cortes pagados completados**, el cliente puede reservar un corte gratis. Los horarios iniciales son un ejemplo editable: lunes a sábado de 10:00 a 20:00, domingo cerrado.
 
@@ -60,6 +60,7 @@ La lógica SQL se comprobó también en PostgreSQL 17 con roles anónimo, client
 - **Clientes:** busca por nombre o correo, consulta sus citas y fidelidad, cambia nombre, estilo, biografía y avatar, o elimina la cuenta con confirmación. El correo pertenece a la cuenta de acceso y los permisos no se cambian desde este panel.
 - **Servicios:** modifica nombre, descripción, precio y duración. Las citas conservan su duración y precio originales.
 - **Horarios:** configura cada día o aplica turnos de mañana/tarde, define antelación y bloquea intervalos concretos. Cambiar el horario no cancela las citas ya confirmadas.
+- **Galería:** elige fotos JPG, PNG o WebP del móvil, comprueba la vista previa y publícalas con una descripción opcional. Puedes eliminarlas con confirmación. El carrusel de Inicio aparece con la primera foto y se oculta al borrar la última; funciona deslizando en móvil o con las flechas. No hay fotos de ejemplo publicadas. Para activarlo en el proyecto existente, ejecuta [gallery.sql](supabase/gallery.sql) en Supabase siguiendo [la guía de activación](supabase/README.md#8-activar-la-galería-de-cortes-en-un-proyecto-existente). Las fotos se reducen a JPEG de un máximo de 1600 píxeles por lado antes de subirlas al bucket público `haircuts`.
 - **Club Cruz:** siete cortes pagados dan derecho al siguiente gratis. Al reservar un regalo queda apartado; si cancelas, se recupera. Los cortes gratuitos no suman sellos.
 
 En **Mi perfil → Elegir de la galería**, puedes seleccionar una foto JPG, PNG o WebP de hasta 10 MB y ver una vista previa. Se reduce a un máximo de 512 píxeles por lado, se convierte a JPEG sin los metadatos originales y solo se guarda al confirmar el perfil. En la versión conectada, Supabase Storage guarda las fotos en un bucket privado: pueden verlas su propietario y el barbero. En la demo solo se conservan en ese navegador.

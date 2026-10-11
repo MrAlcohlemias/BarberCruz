@@ -12,6 +12,15 @@ import { getDemoSessionProfile } from "./auth";
 import { avatarObjectPath, photoDataUrl } from "./avatar";
 import { editableCustomer, removeCustomer } from "./accounts";
 import { clearDemoStore, mutateDemoStore } from "./demoStore";
+import {
+  GALLERY_BUCKET,
+  MAX_GALLERY_CAPTION,
+  galleryPhotoFromRow,
+  galleryUnavailableMessage,
+  isGalleryNotConfigured,
+  isGalleryObjectPath,
+} from "./gallery";
+import type { GalleryPhotoRow } from "./gallery";
 import type {
   AppData,
   Appointment,
@@ -64,6 +73,9 @@ interface AppContextValue {
   deleteCustomer: (id: string) => Promise<void>;
   deleteMyAccount: () => Promise<void>;
   resetDemo: () => Promise<void>;
+  galleryError: string;
+  uploadGalleryPhoto: (photo: Blob, caption: string) => Promise<void>;
+  deleteGalleryPhoto: (id: string) => Promise<void>;
   bookAppointment: (input: BookingInput) => Promise<Appointment>;
   updateAppointment: (id: string, status: AppointmentStatus) => Promise<void>;
   reschedule: (
@@ -155,7 +167,12 @@ function demoData(): AppData {
         Array.isArray(parsed.profiles) &&
         Array.isArray(parsed.blocks)
       )
-        return parsed;
+        return {
+          ...parsed,
+          galleryPhotos: Array.isArray(parsed.galleryPhotos)
+            ? parsed.galleryPhotos
+            : [],
+        };
     }
   } catch {
     /* A fresh local demo remains available if storage is unavailable. */
@@ -260,6 +277,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   profileRef.current = profile;
   const [loading, setLoading] = useState(Boolean(db));
   const [error, setError] = useState("");
+  const [galleryError, setGalleryError] = useState("");
   const refreshVersionRef = useRef(0);
   const deletingAccountRef = useRef(false);
   const clearAuthenticatedState = useCallback(() => {
@@ -297,6 +315,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setData(fresh);
       setProfile(current);
       setError("");
+      setGalleryError("");
       return;
     }
     try {
@@ -327,9 +346,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         current?.role === "admin"
           ? db.from("blocks").select("*")
           : Promise.resolve({ data: [], error: null }),
+        db
+          .from("gallery_photos")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .order("id", { ascending: false }),
       ]);
-      for (const result of results) if (result.error) throw result.error;
-      const [services, settings, appointments, profiles, blocks] = results;
+      for (const result of results.slice(0, 5))
+        if (result.error) throw result.error;
+      const [services, settings, appointments, profiles, blocks, gallery] =
+        results;
       const visibleProfiles =
         current?.role === "admin"
           ? await Promise.all(
@@ -354,6 +380,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           end: String(b.ends_at).slice(0, 5),
           note: String(b.note || ""),
         })),
+        galleryPhotos: gallery.error
+          ? dataRef.current.galleryPhotos
+          : (gallery.data || []).map((row: GalleryPhotoRow) =>
+              galleryPhotoFromRow(
+                row,
+                db!.storage
+                  .from(GALLERY_BUCKET)
+                  .getPublicUrl(String(row.object_path)).data.publicUrl,
+              ),
+            ),
       };
       if (
         refreshVersion !== refreshVersionRef.current ||
@@ -365,6 +401,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setData(fresh);
       setProfile(current);
       setError("");
+      setGalleryError(
+        gallery.error
+          ? isGalleryNotConfigured(gallery.error)
+            ? galleryUnavailableMessage()
+            : "No se ha podido cargar la galería. Comprueba la conexión y vuelve a abrir la página."
+          : "",
+      );
     } catch (err) {
       if (
         refreshVersion === refreshVersionRef.current &&
@@ -456,7 +499,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setData(next);
   }
   async function mutateDemo(change: (fresh: AppData) => AppData) {
-    const apply = async () => persist(await mutateDemoStore(demoData, change));
+    const apply = async () =>
+      persist(
+        await mutateDemoStore(demoData, (fresh) =>
+          change({
+            ...fresh,
+            galleryPhotos: Array.isArray(fresh.galleryPhotos)
+              ? fresh.galleryPhotos
+              : [],
+          }),
+        ),
+      );
     // IndexedDB makes validation and writes atomic; the lock also orders mirror updates.
     if (navigator.locks) await navigator.locks.request(STORAGE_KEY, apply);
     else await apply();
@@ -1094,6 +1147,139 @@ export function AppProvider({ children }: { children: ReactNode }) {
       duration: r.duration,
     }));
   }
+  async function uploadGalleryPhoto(photo: Blob, caption: string) {
+    requireAdmin();
+    if (
+      photo.type !== "image/jpeg" ||
+      !photo.size ||
+      photo.size > 2 * 1024 * 1024
+    )
+      throw new Error("No se ha podido preparar la foto. Elige otra imagen.");
+    const description = caption.trim();
+    if (description.length > MAX_GALLERY_CAPTION)
+      throw new Error(
+        `La descripción puede tener hasta ${MAX_GALLERY_CAPTION} caracteres.`,
+      );
+    if (db) {
+      if (galleryError) throw new Error(galleryError);
+      const path = `${crypto.randomUUID()}.jpg`;
+      const upload = await db.storage.from(GALLERY_BUCKET).upload(path, photo, {
+        contentType: "image/jpeg",
+        upsert: false,
+        cacheControl: "3600",
+      });
+      if (upload.error)
+        throw new Error(
+          "No se ha podido subir la foto. Comprueba la conexión y que la galería esté activada.",
+        );
+      const result = await db
+        .from("gallery_photos")
+        .insert({
+          object_path: path,
+          caption: description,
+        })
+        .select("*")
+        .single();
+      let saved: GalleryPhotoRow | null = result.data;
+      if (result.error || !saved) {
+        // A lost response can hide a committed insert. Verify it before
+        // removing the uploaded object so a published photo cannot break.
+        const confirmation = await db
+          .from("gallery_photos")
+          .select("*")
+          .eq("object_path", path)
+          .maybeSingle();
+        if (confirmation.error)
+          throw new Error(
+            "No se ha podido confirmar la publicación. Vuelve a cargar la galería antes de intentarlo de nuevo.",
+          );
+        saved = confirmation.data;
+        if (!saved) {
+          await db.storage
+            .from(GALLERY_BUCKET)
+            .remove([path])
+            .catch(() => undefined);
+          throw new Error(
+            "No se ha podido publicar la foto. Inténtalo de nuevo.",
+          );
+        }
+      }
+      refreshVersionRef.current += 1;
+      const published = galleryPhotoFromRow(
+        saved,
+        db.storage.from(GALLERY_BUCKET).getPublicUrl(path).data.publicUrl,
+      );
+      const updated = {
+        ...dataRef.current,
+        galleryPhotos: [published, ...dataRef.current.galleryPhotos],
+      };
+      dataRef.current = updated;
+      setData(updated);
+      await refresh();
+    } else {
+      const url = await photoDataUrl(photo);
+      const id = crypto.randomUUID();
+      await mutateDemo((fresh) => ({
+        ...fresh,
+        galleryPhotos: [
+          {
+            id,
+            path: `${id}.jpg`,
+            url,
+            caption: description,
+            createdAt: new Date().toISOString(),
+          },
+          ...fresh.galleryPhotos,
+        ],
+      }));
+    }
+  }
+  async function deleteGalleryPhoto(id: string) {
+    requireAdmin();
+    if (db) {
+      const photo = dataRef.current.galleryPhotos.find(
+        (item) => item.id === id,
+      );
+      if (!photo || !isGalleryObjectPath(photo.path))
+        throw new Error(
+          "No se ha encontrado la foto. Vuelve a cargar la galería.",
+        );
+      const removed = await db.storage
+        .from(GALLERY_BUCKET)
+        .remove([photo.path]);
+      if (removed.error)
+        throw new Error(
+          "No se ha podido eliminar la foto. Inténtalo de nuevo.",
+        );
+      const result = await db
+        .from("gallery_photos")
+        .delete()
+        .eq("id", id)
+        .select("id");
+      if (result.error || !result.data?.length)
+        throw new Error(
+          "No se ha podido confirmar el borrado. Actualiza la galería y vuelve a intentarlo.",
+        );
+      refreshVersionRef.current += 1;
+      const updated = {
+        ...dataRef.current,
+        galleryPhotos: dataRef.current.galleryPhotos.filter(
+          (item) => item.id !== id,
+        ),
+      };
+      dataRef.current = updated;
+      setData(updated);
+      await refresh();
+    } else
+      await mutateDemo((fresh) => {
+        if (!fresh.galleryPhotos.some((photo) => photo.id === id))
+          throw new Error("La foto ya no está en la galería.");
+        return {
+          ...fresh,
+          galleryPhotos: fresh.galleryPhotos.filter((photo) => photo.id !== id),
+        };
+      });
+  }
   return (
     <AppContext.Provider
       value={{
@@ -1113,6 +1299,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         deleteCustomer,
         deleteMyAccount,
         resetDemo,
+        galleryError,
+        uploadGalleryPhoto,
+        deleteGalleryPhoto,
         bookAppointment,
         updateAppointment,
         reschedule,

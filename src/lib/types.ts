@@ -52,10 +52,18 @@ export interface Block {
   end: string;
   note: string;
 }
+export interface GalleryPhoto {
+  id: string;
+  path: string;
+  url: string;
+  caption: string;
+  createdAt: string;
+}
 export interface AppData {
   profiles: Profile[];
   appointments: Appointment[];
   services: Service[];
   settings: Settings;
   blocks: Block[];
+  galleryPhotos: GalleryPhoto[];
 }

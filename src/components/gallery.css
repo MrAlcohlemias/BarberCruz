@@ -1,0 +1,404 @@
+.gallery-carousel {
+  width: 100%;
+  min-width: 0;
+  margin: 40px 0;
+}
+.gallery-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+.gallery-heading .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 10px;
+}
+.gallery-heading h2 {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font:
+    600 clamp(25px, 3vw, 34px) "Space Grotesk",
+    sans-serif;
+  letter-spacing: -1px;
+}
+.gallery-heading > div > p:last-child {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+  line-height: 1.7;
+}
+.gallery-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.gallery-controls button,
+.gallery-delete-button,
+.gallery-preview-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.gallery-controls button:hover:not(:disabled),
+.gallery-delete-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.gallery-controls button:disabled,
+.gallery-delete-button:disabled,
+.gallery-preview-remove:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.gallery-carousel button:focus-visible,
+.gallery-track:focus-visible,
+.gallery-upload-card button:focus-visible,
+.gallery-admin-grid button:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 3px;
+}
+.gallery-track {
+  position: relative;
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  padding-bottom: 9px;
+  border-radius: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+.gallery-slide {
+  flex: 0 0 calc((100% - 36px) / 3);
+  min-width: 0;
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  scroll-snap-align: start;
+}
+.gallery-slide-image {
+  aspect-ratio: 4 / 5;
+  background: #0c0d0c;
+}
+.gallery-slide-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.gallery-slide figcaption {
+  padding: 15px 16px;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.gallery-footnote {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 8px;
+}
+.gallery-upload-card,
+.gallery-admin-photo {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.gallery-upload-card {
+  padding: 25px;
+  margin-bottom: 25px;
+}
+.gallery-upload-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  margin-bottom: 22px;
+}
+.gallery-upload-icon {
+  display: grid;
+  place-items: center;
+  width: 45px;
+  height: 45px;
+  flex: none;
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--lime);
+}
+.gallery-upload-intro h3 {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  margin: 2px 0 7px;
+}
+.gallery-upload-intro p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+}
+.gallery-file-input {
+  display: none;
+}
+.gallery-upload-preview {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  margin-bottom: 17px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #0c0d0c;
+  overflow: hidden;
+}
+.gallery-upload-preview img {
+  display: block;
+  width: 100%;
+  height: 260px;
+  object-fit: contain;
+}
+.gallery-preview-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #161816e6;
+  backdrop-filter: blur(4px);
+}
+.gallery-file-picker {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.gallery-file-picker small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.gallery-caption-label {
+  display: block;
+}
+.admin-panel .gallery-caption-label textarea {
+  display: block;
+  margin-top: 8px;
+  min-height: 76px;
+}
+.gallery-caption-count {
+  display: block;
+  text-align: right;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 7px;
+}
+.gallery-upload-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 20px;
+}
+.gallery-upload-footer p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 0;
+}
+.gallery-upload-card .admin-btn,
+.gallery-delete-actions .admin-btn {
+  min-height: 44px;
+}
+.gallery-action-error {
+  border: 1px solid #73524c;
+  background: var(--danger-surface);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.7;
+  border-radius: 9px;
+  padding: 12px 14px;
+  overflow-wrap: anywhere;
+  margin: 17px 0 0;
+}
+.gallery-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.gallery-admin-photo {
+  min-width: 0;
+  overflow: hidden;
+}
+.gallery-admin-photo > img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: contain;
+  background: #0c0d0c;
+}
+.gallery-admin-photo-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px;
+}
+.gallery-admin-photo-footer p {
+  min-width: 0;
+  color: var(--ink-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.gallery-delete-button {
+  color: var(--danger);
+  border-color: transparent;
+  background: transparent;
+}
+.gallery-admin-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 42px 20px;
+}
+.gallery-admin-empty > svg {
+  margin: auto;
+}
+.gallery-admin-empty h3 {
+  color: var(--ink-secondary);
+  font:
+    500 21px "Space Grotesk",
+    sans-serif;
+  margin: 16px 0 9px;
+}
+.gallery-admin-empty p {
+  font-size: 12px;
+  line-height: 1.8;
+  max-width: 350px;
+  margin: auto;
+}
+.gallery-delete-copy {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 12px 0 20px;
+}
+.gallery-delete-preview {
+  display: block;
+  width: 100%;
+  height: 190px;
+  object-fit: contain;
+  background: #0c0d0c;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.gallery-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 22px;
+}
+@media (max-width: 900px) {
+  .gallery-slide {
+    flex-basis: calc((100% - 18px) / 2);
+  }
+}
+@media (max-width: 720px) {
+  .admin-panel .admin-tabs {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .admin-panel .admin-tabs > button {
+    flex: 0 0 auto;
+    min-width: 76px;
+    min-height: 50px;
+    padding: 12px 10px;
+  }
+  .gallery-carousel {
+    margin: 32px 0;
+  }
+  .gallery-heading {
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .gallery-heading h2 {
+    font-size: 26px;
+  }
+  .gallery-heading .eyebrow {
+    font-size: 8px;
+  }
+  .gallery-controls {
+    gap: 6px;
+  }
+  .gallery-track {
+    gap: 13px;
+  }
+  .gallery-slide {
+    flex-basis: 88%;
+  }
+  .gallery-slide:only-child {
+    flex-basis: 100%;
+  }
+  .gallery-upload-card {
+    padding: 20px;
+  }
+  .admin-panel .gallery-caption-label textarea {
+    font-size: 16px;
+  }
+  .gallery-upload-intro {
+    gap: 12px;
+  }
+  .gallery-upload-intro p {
+    font-size: 11px;
+  }
+  .gallery-upload-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+  .gallery-admin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 13px;
+  }
+}
+@media (max-width: 420px) {
+  .gallery-admin-grid {
+    grid-template-columns: 1fr;
+  }
+  .gallery-delete-actions {
+    flex-direction: column;
+  }
+  .gallery-delete-actions > button {
+    width: 100%;
+  }
+  .gallery-heading h2 {
+    font-size: 23px;
+  }
+  .gallery-footnote {
+    font-size: 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gallery-carousel *,
+  .gallery-upload-card * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}

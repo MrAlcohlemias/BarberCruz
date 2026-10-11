@@ -258,5 +258,6 @@ export function createDemoData(): AppData {
     services: structuredClone(defaultServices),
     settings: structuredClone(defaultSettings),
     blocks: [],
+    galleryPhotos: [],
   };
 }

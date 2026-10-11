@@ -12,7 +12,10 @@ export function validatePhoto(file: Pick<File, "type" | "size">): void {
 }
 
 /** Resize and re-encode locally so uploads contain no original photo metadata. */
-export async function preparePhoto(file: File): Promise<Blob> {
+export async function preparePhoto(
+  file: File,
+  maxDimension = 512,
+): Promise<Blob> {
   validatePhoto(file);
   const objectUrl = URL.createObjectURL(file);
   try {
@@ -27,7 +30,7 @@ export async function preparePhoto(file: File): Promise<Blob> {
       throw new Error("La imagen no tiene un tamaño válido.");
     const scale = Math.min(
       1,
-      512 / Math.max(photo.naturalWidth, photo.naturalHeight),
+      maxDimension / Math.max(photo.naturalWidth, photo.naturalHeight),
     );
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(photo.naturalWidth * scale));

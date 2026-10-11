@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock3,
   Euro,
+  Images,
   Plus,
   Save,
   Scissors,
@@ -32,7 +33,9 @@ import {
 } from "../lib/domain";
 import { avatarSource } from "../lib/avatar";
 import ClientsPanel from "./ClientsPanel";
+import GalleryPanel from "./GalleryPanel";
 import "./admin.css";
+import "./gallery.css";
 
 export interface AdminPanelProps {
   data: AppData;
@@ -49,9 +52,12 @@ export interface AdminPanelProps {
   onToast: (message: string) => void;
   onUpdateCustomer: (next: Profile) => Promise<void>;
   onDeleteCustomer: (id: string) => Promise<void>;
+  onUploadGalleryPhoto: (photo: Blob, caption: string) => Promise<void>;
+  onDeleteGalleryPhoto: (id: string) => Promise<void>;
+  galleryError: string;
 }
 
-type Tab = "agenda" | "clients" | "services" | "hours";
+type Tab = "agenda" | "clients" | "services" | "hours" | "gallery";
 const statusNames: Record<AppointmentStatus, string> = {
   confirmed: "Confirmada",
   completed: "Completada",
@@ -141,6 +147,9 @@ export default function AdminPanel({
   onToast,
   onUpdateCustomer,
   onDeleteCustomer,
+  onUploadGalleryPhoto,
+  onDeleteGalleryPhoto,
+  galleryError,
 }: AdminPanelProps) {
   const currentDate = today(data.settings.timezone);
   const [tab, setTab] = useState<Tab>("agenda");
@@ -434,6 +443,7 @@ export default function AdminPanel({
             { id: "clients", name: "Clientes", icon: Users },
             { id: "services", name: "Servicios", icon: Scissors },
             { id: "hours", name: "Horarios", icon: Clock3 },
+            { id: "gallery", name: "Galería", icon: Images },
           ] as const
         ).map(({ id, name, icon: Icon }) => (
           <button
@@ -477,6 +487,22 @@ export default function AdminPanel({
             data={data}
             onUpdateCustomer={onUpdateCustomer}
             onDeleteCustomer={onDeleteCustomer}
+            onToast={onToast}
+          />
+        </div>
+      )}
+
+      {tab === "gallery" && (
+        <div
+          id="admin-gallery"
+          role="tabpanel"
+          aria-labelledby="admin-tab-gallery"
+        >
+          <GalleryPanel
+            photos={data.galleryPhotos}
+            onUploadGalleryPhoto={onUploadGalleryPhoto}
+            onDeleteGalleryPhoto={onDeleteGalleryPhoto}
+            error={galleryError}
             onToast={onToast}
           />
         </div>

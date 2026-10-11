@@ -14,7 +14,7 @@ No compartas por chat la contraseña de la base de datos, el secreto OAuth de Go
 
 ## 1. Crear las tablas
 
-En un proyecto de Supabase, abre **SQL Editor** y ejecuta el contenido completo de [schema.sql](schema.sql). Crea las tablas, las políticas de acceso, las funciones de reserva, el perfil al registrarse y el bucket privado para las fotos. Puedes volver a ejecutar el archivo sin perder citas ni reemplazar horarios o precios que ya hayas editado. Si ya habías ejecutado una versión anterior, vuelve a ejecutar el archivo actualizado para habilitar las fotos de la galería.
+En un proyecto de Supabase, abre **SQL Editor** y ejecuta el contenido completo de [schema.sql](schema.sql). Crea las tablas, las políticas de acceso, las funciones de reserva, el perfil al registrarse, el bucket privado para los perfiles y la galería pública de cortes. Puedes volver a ejecutar el archivo sin perder citas ni reemplazar horarios o precios que ya hayas editado. Para añadir únicamente el carrusel a un proyecto que ya funciona, sigue el apartado 8: basta ejecutar [gallery.sql](gallery.sql).
 
 La configuración inicial es un **corte de pelo de 7 € y 45 minutos**, de lunes a sábado de **10:00 a 20:00**, con turnos cada 15 minutos y reservas hasta 30 días antes. El domingo está cerrado. Son valores iniciales que el administrador puede cambiar. La zona horaria es **Europe/Madrid**, incluidos los cambios de hora de verano.
 
@@ -134,7 +134,24 @@ Después vuelve a probar la eliminación desde la web. No desbloquees una cuenta
 
 Los pagos no se procesan en la web: «pagado» representa un corte normal completado por el administrador, frente a una cita gratis canjeada. El precio y los horarios definitivos debe validarlos el barbero antes de compartir el enlace.
 
-## 8. Comprobar antes de compartirla
+## 8. Activar la galería de cortes en un proyecto existente
+
+El administrador puede subir y eliminar fotos desde **Administración → Galería**. El carrusel de la portada permanece oculto mientras no haya ninguna foto publicada; al subir la primera aparece y al eliminar la última vuelve a ocultarse. No se incluyen fotos de ejemplo.
+
+1. Abre tu proyecto de Supabase y entra en **SQL Editor → New query**.
+2. Abre [gallery.sql](gallery.sql), copia **todo su contenido**, pégalo en la consulta y pulsa **Run**. Es una migración que se puede repetir: añade la tabla `gallery_photos`, el bucket público `haircuts`, sus permisos y la publicación de cambios sin borrar cuentas, citas ni fotos anteriores.
+3. Comprueba que aparece `gallery_photos` en **Table Editor** y `haircuts` en **Storage**. El bucket debe indicar que es **Public**. No cambies a público el bucket `avatars`: los perfiles siguen siendo privados.
+4. Espera al despliegue de la nueva versión de la web en Vercel, recarga la app e inicia sesión con una cuenta administradora.
+5. En **Administración → Galería**, elige una foto del móvil o del ordenador, añade una descripción opcional y súbela. Comprueba desde una ventana sin sesión que aparece en la portada.
+6. Elimina esa foto desde la galería del administrador. Se retira el archivo mediante la API de Storage y después su fila. Si era la única, el carrusel desaparece. Si el borrado devuelve un error, la foto permanece en el panel para poder reintentarlo.
+
+Este cambio **no necesita una nueva Edge Function, claves privadas ni cambios en Google OAuth**. Si se muestra «Falta activar la galería en Supabase», ejecuta el archivo del paso 2 y vuelve a intentarlo. Las reservas, los perfiles y el acceso siguen funcionando aunque la migración todavía no se haya aplicado.
+
+Las fotos del carrusel son públicas, también para quien no haya iniciado sesión; publica cortes con permiso del cliente. La subida acepta JPG, PNG y WebP de hasta 10 MB y prepara un JPEG de hasta 1600 píxeles y 2 MiB, sin los metadatos originales. Los nombres son UUID únicos: los clientes y visitantes pueden ver las fotos pero no subirlas, sobrescribirlas ni borrarlas. La descripción admite hasta 120 caracteres. La base de datos solo permite publicar una foto si ya existe su archivo correspondiente en `haircuts`.
+
+Eliminar una foto retira el original de Storage y la publicación de la portada. Las copias que alguien haya descargado o conserve en la caché no se pueden retirar desde Barber Cruz. La demo guarda estas fotos únicamente en el navegador, como el resto de sus datos.
+
+## 9. Comprobar antes de compartirla
 
 Conecta dos cuentas de Google distintas y comprueba una reserva real: la segunda cuenta debe ver el turno ocupado y no poder leer la cita ni el perfil de la primera. Comprueba también que un cliente no puede abrir el panel administrativo, que la cuenta de tu amigo sí puede gestionar esa cita y que cancelarla libera el turno.
 
@@ -148,12 +165,16 @@ Las nuevas políticas de fotos se comprobaron en el mismo PostgreSQL 17 con tabl
 
 La gestión de clientes y el borrado se comprobaron en PostgreSQL 17: edición propia y del administrador sobre clientes, bloqueo de cambios de correo/rol/marcador desde la API, rechazo de la eliminación de administradores, RPC de preparación exclusivo del servidor, bloqueo de nuevas fotos/reservas mientras se borra y cascada de Authentication a perfil y citas de todos los estados. Una subida simultánea termina antes de que se active la protección; las posteriores y una segunda eliminación se rechazan. Las pruebas del controlador verifican autenticación, permisos, paginación y limpieza de Storage, borrado real mediante Auth y fallos parciales. Estas comprobaciones son locales: el despliegue de la Edge Function y un borrado real en tu proyecto deben validarse con una cuenta de prueba después de configurarlos.
 
+La galería se comprueba por separado en PostgreSQL 17 con Storage simulado: lectura pública, subida/publicación/borrado exclusivos del administrador, rechazo de referencias a archivos inexistentes o de otro bucket, nombres inválidos, sobreescrituras y cambios de metadatos. Se comprueba también que repetir tanto `schema.sql` como `gallery.sql` conserva las fotos, no duplica las políticas ni la publicación realtime y mantiene privado `avatars`. La entrega de imágenes, los límites del servicio de Storage y la actualización entre dispositivos requieren comprobarse después en el proyecto real.
+
 ## Contrato de la API
 
 | Recurso                        | Campos relevantes                                                                                                | Acceso                                                                                                                |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `profiles`                     | `id`, `name`, `email`, `avatar`, `bio`, `preferred_style`, `role`, `deletion_pending`                            | Lectura propia o administrador; edición propia o de clientes por administrador, sin cambios de correo, rol o marcador |
 | Storage `avatars`              | Archivo `<id-del-usuario>/<uuid>.jpg`, máx. 2 MiB                                                                | Lectura propia o administrador mediante URL firmada; subida propia; borrado propio o de clientes por administrador    |
+| `gallery_photos`               | `id`, `object_path`, `caption`, `created_at`                                                                     | Lectura pública; publicación y borrado por administrador; sin actualización de filas                                  |
+| Storage `haircuts`             | Archivo `<uuid>.jpg`, JPEG de máx. 2 MiB                                                                         | Descarga pública; subida y borrado por administrador; sin sobrescritura                                               |
 | Edge Function `delete-account` | POST `{ userId?: string, confirmation: 'ELIMINAR' }`                                                             | Sesión verificada; cliente elimina su cuenta, administrador elimina clientes; clave privada exclusiva del servidor    |
 | `services`                     | `id`, `name`, `description`, `duration`, `price`, `icon`                                                         | Lectura pública; escritura del administrador                                                                          |
 | `settings`                     | `id = 'singleton'`, `payload`                                                                                    | Lectura pública; el administrador edita `payload`                                                                     |

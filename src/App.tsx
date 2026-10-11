@@ -42,6 +42,7 @@ import type { Appointment, Profile } from "./lib/types";
 import Modal from "./components/Modal";
 import AdminPanel from "./components/AdminPanel";
 import DeleteAccountSection from "./components/DeleteAccountSection";
+import GalleryCarousel from "./components/GalleryCarousel";
 
 type View = "home" | "appointments" | "club" | "admin";
 type InstallEvent = Event & {
@@ -1937,6 +1938,7 @@ export default function App() {
                 onBook={() => book()}
               />
             </div>
+            <GalleryCarousel photos={data.galleryPhotos} />
             <section className="app-promo">
               <div className="app-promo-icon">
                 <Scissors size={29} />
@@ -1997,6 +1999,9 @@ export default function App() {
               onReschedule={app.reschedule}
               onUpdateCustomer={app.updateCustomer}
               onDeleteCustomer={app.deleteCustomer}
+              onUploadGalleryPhoto={app.uploadGalleryPhoto}
+              onDeleteGalleryPhoto={app.deleteGalleryPhoto}
+              galleryError={app.galleryError}
               onToast={notify}
             />
           </div>
@@ -2140,15 +2145,20 @@ export default function App() {
                   la versión conectada.
                 </p>
                 <p>
-                  La foto que elijas de la galería se guarda al confirmar tu
+                  La foto que elijas para tu perfil se guarda al confirmar tu
                   perfil. En la versión conectada, solo tú y el barbero podéis
                   verla; puedes sustituirla por otra foto o un avatar.
                 </p>
                 <p>
+                  Las fotos de cortes que publica el barbero aparecen en la
+                  galería de Inicio y son visibles para todos.
+                </p>
+                <p>
                   Puedes eliminar tu cuenta desde Mi perfil → Eliminar mi
-                  cuenta. Se borrarán tus fotos, tus citas y tus puntos de Club
-                  Cruz. Tu cuenta de Google se conserva. El barbero también
-                  puede editar o eliminar cuentas de clientes desde su panel.
+                  cuenta. Se borrarán tu foto de perfil, tus citas y tus puntos
+                  de Club Cruz. Tu cuenta de Google se conserva. El barbero
+                  también puede editar o eliminar cuentas de clientes desde su
+                  panel.
                 </p>
                 <p>
                   No incluyas datos sensibles en tu biografía ni en las notas de
