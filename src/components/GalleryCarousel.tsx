@@ -10,8 +10,8 @@ import type { KeyboardEvent } from "react";
 import type { GalleryPhoto } from "../lib/types";
 import "./gallery.css";
 
-const ADVANCE_DELAY = 4000;
-const INTERACTION_DELAY = 8000;
+const PIXELS_PER_SECOND = 20;
+const INTERACTION_DELAY = 1600;
 
 function trackMeasurements(track: HTMLDivElement, count: number) {
   const first = track.children[0] as HTMLElement | undefined;
@@ -34,13 +34,14 @@ export default function GalleryCarousel({
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
+  const measurementsRef = useRef<ReturnType<typeof trackMeasurements>>(null);
   const indexRef = useRef(0);
   const interactionUntilRef = useRef(0);
   const pointerDownRef = useRef(false);
   const [index, setIndex] = useState(0);
   const [bufferCycles, setBufferCycles] = useState(1);
   const [paused, setPaused] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  const [motionRequested, setMotionRequested] = useState(false);
   const [focused, setFocused] = useState(false);
   const [visible, setVisible] = useState(false);
   const [documentVisible, setDocumentVisible] = useState(
@@ -51,9 +52,10 @@ export default function GalleryCarousel({
   );
   const photoIds = photos.map((photo) => photo.id).join(",");
   const hasMultiple = photos.length > 1;
-  const copies = hasMultiple ? bufferCycles : 0;
-  const automaticallyPlaying =
-    hasMultiple && !paused && !reducedMotion && !hovered && !focused;
+  const hasPhotos = photos.length > 0;
+  const copies = hasPhotos ? bufferCycles : 0;
+  const motionStopped = paused || (reducedMotion && !motionRequested);
+  const automaticallyPlaying = hasPhotos && !motionStopped && !focused;
 
   function interact() {
     interactionUntilRef.current = Date.now() + INTERACTION_DELAY;
@@ -67,7 +69,7 @@ export default function GalleryCarousel({
 
     const update = () => {
       const measurements = trackMeasurements(track, photos.length);
-      if (!measurements || !hasMultiple) {
+      if (!measurements) {
         indexRef.current = 0;
         setIndex(0);
         return;
@@ -109,7 +111,8 @@ export default function GalleryCarousel({
 
     const resize = () => {
       const measurements = trackMeasurements(track, photos.length);
-      if (!measurements || !hasMultiple) return;
+      measurementsRef.current = measurements;
+      if (!measurements) return;
       const needed = Math.max(
         1,
         Math.ceil(track.clientWidth / measurements.width) + 1,
@@ -136,7 +139,7 @@ export default function GalleryCarousel({
       cancelAnimationFrame(frame);
       clearTimeout(settled);
     };
-  }, [photoIds, photos.length, hasMultiple, bufferCycles]);
+  }, [photoIds, photos.length, bufferCycles]);
 
   useEffect(() => {
     const section = sectionRef.current;
@@ -151,7 +154,10 @@ export default function GalleryCarousel({
 
   useEffect(() => {
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const motionChange = () => setReducedMotion(preference.matches);
+    const motionChange = () => {
+      setReducedMotion(preference.matches);
+      setMotionRequested(false);
+    };
     const visibilityChange = () =>
       setDocumentVisible(document.visibilityState === "visible");
     const releasePointer = () => {
@@ -170,11 +176,10 @@ export default function GalleryCarousel({
   }, []);
 
   const move = useCallback(
-    (direction: -1 | 1, edge?: "start" | "end", automatic = false) => {
+    (direction: -1 | 1, edge?: "start" | "end") => {
       const track = trackRef.current;
       if (!track || !hasMultiple) return;
-      if (!automatic)
-        interactionUntilRef.current = Date.now() + INTERACTION_DELAY;
+      interactionUntilRef.current = Date.now() + INTERACTION_DELAY;
       const measurements = trackMeasurements(track, photos.length);
       if (!measurements) return;
       const left =
@@ -193,20 +198,50 @@ export default function GalleryCarousel({
 
   useEffect(() => {
     if (!automaticallyPlaying || !visible || !documentVisible) return;
-    const timer = setInterval(() => {
-      if (pointerDownRef.current || Date.now() < interactionUntilRef.current)
-        return;
-      move(1, undefined, true);
-    }, ADVANCE_DELAY);
-    return () => clearInterval(timer);
-  }, [automaticallyPlaying, visible, documentVisible, move]);
+    const track = trackRef.current;
+    if (!track) return;
+    let frame = 0;
+    let previousTime = 0;
+    let position = track.scrollLeft;
+    let appliedPosition = track.scrollLeft;
+    const animate = (timestamp: number) => {
+      const elapsed = previousTime ? Math.min(timestamp - previousTime, 64) : 0;
+      previousTime = timestamp;
+      const measurements = measurementsRef.current;
+      if (
+        !measurements ||
+        pointerDownRef.current ||
+        Date.now() < interactionUntilRef.current
+      ) {
+        position = track.scrollLeft;
+      } else {
+        // Keep fractional pixels locally. Reading the browser's rounded
+        // scrollLeft on every frame would discard these slow movements.
+        if (Math.abs(track.scrollLeft - appliedPosition) > 2)
+          position = track.scrollLeft;
+        position += (elapsed * PIXELS_PER_SECOND) / 1000;
+        const offset =
+          (((position - measurements.start) % measurements.width) +
+            measurements.width) %
+          measurements.width;
+        position = measurements.start + offset;
+        track.scrollLeft = position;
+      }
+      appliedPosition = track.scrollLeft;
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [automaticallyPlaying, visible, documentVisible, photoIds, bufferCycles]);
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
+      setFocused(true);
       move(event.key === "ArrowLeft" ? -1 : 1);
     } else if (event.key === "Home" || event.key === "End") {
       event.preventDefault();
+      setFocused(true);
       move(1, event.key === "Home" ? "start" : "end");
     }
   }
@@ -219,12 +254,6 @@ export default function GalleryCarousel({
       className="gallery-carousel"
       aria-label="Galería de cortes"
       aria-roledescription="carrusel"
-      onPointerEnter={(event) => {
-        if (event.pointerType === "mouse") setHovered(true);
-      }}
-      onPointerLeave={(event) => {
-        if (event.pointerType === "mouse") setHovered(false);
-      }}
       onPointerDownCapture={() => {
         pointerDownRef.current = true;
         interact();
@@ -240,38 +269,46 @@ export default function GalleryCarousel({
     >
       <div className="gallery-heading">
         <h2>Nuestros cortes</h2>
-        {hasMultiple && (
+        {hasPhotos && (
           <div className="gallery-controls">
-            <button
-              type="button"
-              aria-label="Ver foto anterior"
-              onClick={() => move(-1)}
-            >
-              <ArrowLeft size={17} aria-hidden="true" />
-            </button>
-            {!reducedMotion && (
+            {hasMultiple && (
               <button
                 type="button"
-                aria-label={paused ? "Reanudar carrusel" : "Pausar carrusel"}
-                onClick={() => {
-                  if (paused) interactionUntilRef.current = 0;
-                  setPaused((previous) => !previous);
-                }}
+                aria-label="Ver foto anterior"
+                onClick={() => move(-1)}
               >
-                {paused ? (
-                  <Play size={15} aria-hidden="true" />
-                ) : (
-                  <Pause size={15} aria-hidden="true" />
-                )}
+                <ArrowLeft size={17} aria-hidden="true" />
               </button>
             )}
             <button
               type="button"
-              aria-label="Ver foto siguiente"
-              onClick={() => move(1)}
+              aria-label={
+                motionStopped ? "Reanudar carrusel" : "Pausar carrusel"
+              }
+              onClick={() => {
+                if (motionStopped) {
+                  interactionUntilRef.current = 0;
+                  setFocused(false);
+                  setMotionRequested(true);
+                  setPaused(false);
+                } else setPaused(true);
+              }}
             >
-              <ArrowRight size={17} aria-hidden="true" />
+              {motionStopped ? (
+                <Play size={15} aria-hidden="true" />
+              ) : (
+                <Pause size={15} aria-hidden="true" />
+              )}
             </button>
+            {hasMultiple && (
+              <button
+                type="button"
+                aria-label="Ver foto siguiente"
+                onClick={() => move(1)}
+              >
+                <ArrowRight size={17} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
       </div>

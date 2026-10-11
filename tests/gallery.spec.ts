@@ -202,6 +202,8 @@ test("la galería empieza oculta y rechaza archivos que no sean fotos sin public
 test("el administrador publica fotos, se conservan al recargar y los clientes pueden recorrerlas", async ({
   page,
 }) => {
+  // Exercise manual navigation independently of the separately tested autoplay.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await loginAdmin(page);
   await publishPhoto(page, "Degradado bajo");
   await publishPhoto(page, "Textura y volumen");
@@ -320,8 +322,27 @@ test("en móvil cancelar conserva la foto, borrar una mantiene el carrusel y bor
     gallery.getByRole("button", { name: "Ver foto siguiente", exact: true }),
   ).toHaveCount(0);
   await expect(
-    gallery.getByRole("button", { name: /(?:Pausar|Reanudar) carrusel/ }),
-  ).toHaveCount(0);
+    gallery.getByRole("button", { name: "Pausar carrusel", exact: true }),
+  ).toBeVisible();
+  const remainingTrack = gallery.locator(".gallery-track");
+  await remainingTrack.scrollIntoViewIfNeeded();
+  await remainingTrack.hover();
+  const remainingImage = gallery.getByRole("img", {
+    name: "Corte a tijera",
+    exact: true,
+  });
+  const singlePhotoMovement = await remainingImage.evaluate(
+    (image) =>
+      new Promise<number>((resolve) => {
+        const initialLeft = image.getBoundingClientRect().left;
+        setTimeout(
+          () => resolve(initialLeft - image.getBoundingClientRect().left),
+          900,
+        );
+      }),
+  );
+  expect(singlePhotoMovement).toBeGreaterThan(6);
+  expect(singlePhotoMovement).toBeLessThan(45);
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
@@ -354,27 +375,88 @@ test("en móvil cancelar conserva la foto, borrar una mantiene el carrusel y bor
   ).toBe(true);
 });
 
-test("el carrusel avanza solo, vuelve a la primera foto y respeta la pausa y la navegación manual", async ({
+test("el carrusel se desplaza lentamente incluso bajo el puntero, recorre el bucle sin saltos y permite pausarlo y usar el teclado", async ({
   page,
 }) => {
-  test.setTimeout(45_000);
+  test.setTimeout(55_000);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setViewportSize({ width: 390, height: 844 });
-  await seedGallery(page, 3);
+  await seedGallery(page, 2);
   await page.bringToFront();
   const gallery = page.getByRole("region", { name: "Galería de cortes" });
   const track = gallery.locator(".gallery-track");
   const counter = gallery.locator(".gallery-footnote");
   await track.scrollIntoViewIfNeeded();
-  await page.mouse.move(0, 0);
-  await expect(counter).toContainText("Foto 1 de 3");
-  await expect(counter).toContainText("Foto 2 de 3", { timeout: 6500 });
-  await expect(counter).toContainText("Foto 3 de 3", { timeout: 6500 });
-  await expect(counter).toContainText("Foto 1 de 3", { timeout: 6500 });
-  await expect(originals(gallery)).toHaveCount(3);
+  // The pointer stays over the photos, as it does while viewing the gallery.
+  // This must not silently stop automatic movement.
+  await track.hover();
+  const positions = await originals(gallery)
+    .first()
+    .locator("img")
+    .evaluate(
+      (image) =>
+        new Promise<number[]>((resolve) => {
+          const positions: number[] = [];
+          const sample = () => {
+            positions.push(image.getBoundingClientRect().left);
+            if (positions.length === 4) resolve(positions);
+            else setTimeout(sample, 300);
+          };
+          sample();
+        }),
+    );
+  for (let index = 1; index < positions.length; index++) {
+    const movement = positions[index - 1] - positions[index];
+    expect(movement).toBeGreaterThan(2);
+    expect(movement).toBeLessThan(18);
+  }
+  expect(positions[0] - positions.at(-1)!).toBeLessThan(45);
+
+  const loop = await track.evaluate(
+    (element) =>
+      new Promise<{
+        wrapped: boolean;
+        largestForwardStep: number;
+        travelled: number;
+        samples: number;
+      }>((resolve) => {
+        const children = Array.from(element.children) as HTMLElement[];
+        const step = children[1].offsetLeft - children[0].offsetLeft;
+        const cycleWidth = step * 2;
+        let previous = element.scrollLeft;
+        let travelled = 0;
+        let largestForwardStep = 0;
+        let samples = 0;
+        const began = performance.now();
+        const sample = () => {
+          const current = element.scrollLeft;
+          const rawDifference = current - previous;
+          const forwardDifference =
+            ((rawDifference % cycleWidth) + cycleWidth) % cycleWidth;
+          largestForwardStep = Math.max(largestForwardStep, forwardDifference);
+          travelled += forwardDifference;
+          samples += 1;
+          const wrapped = rawDifference < -cycleWidth / 2;
+          previous = current;
+          if (wrapped || performance.now() - began >= 20_000) {
+            resolve({ wrapped, largestForwardStep, travelled, samples });
+          } else {
+            requestAnimationFrame(sample);
+          }
+        };
+        requestAnimationFrame(sample);
+      }),
+  );
+  expect(loop.wrapped).toBe(true);
+  expect(loop.samples).toBeGreaterThan(100);
+  expect(loop.travelled).toBeGreaterThan(200);
+  // Crossing the last photo returns to an identical copy of the first.
+  // A backward animation or a full-photo jump would exceed this bound.
+  expect(loop.largestForwardStep).toBeLessThan(8);
+  await expect(originals(gallery)).toHaveCount(2);
   await expect(
     gallery.getByRole("img", { name: /Corte de prueba/ }),
-  ).toHaveCount(3);
+  ).toHaveCount(2);
   expect(await gallery.locator('[aria-hidden="true"]').count()).toBeGreaterThan(
     0,
   );
@@ -383,41 +465,48 @@ test("el carrusel avanza solo, vuelve a la primera foto y respeta la pausa y la 
     .getByRole("button", { name: "Pausar carrusel", exact: true })
     .click();
   await page.evaluate(() => (document.activeElement as HTMLElement).blur());
-  await page.mouse.move(0, 0);
-  const pausedCounter = await counter.textContent();
-  await page.waitForTimeout(4400);
-  expect(await counter.textContent()).toBe(pausedCounter);
-  await expect(
-    gallery.getByRole("button", { name: "Reanudar carrusel", exact: true }),
-  ).toBeVisible();
+  const stoppedAt = await track.evaluate((element) => element.scrollLeft);
+  await page.waitForTimeout(1100);
+  expect(
+    Math.abs(
+      (await track.evaluate((element) => element.scrollLeft)) - stoppedAt,
+    ),
+  ).toBeLessThan(1);
   await gallery
     .getByRole("button", { name: "Reanudar carrusel", exact: true })
     .click();
   await page.evaluate(() => (document.activeElement as HTMLElement).blur());
-  await page.mouse.move(0, 0);
-  await expect(counter).toContainText("Foto 2 de 3", { timeout: 6500 });
-
   await track.hover();
-  const hoveredCounter = await counter.textContent();
-  await page.waitForTimeout(4400);
-  expect(await counter.textContent()).toBe(hoveredCounter);
-  await page.mouse.move(0, 0);
+  await expect
+    .poll(() => track.evaluate((element) => element.scrollLeft))
+    .toBeGreaterThan(stoppedAt + 10);
+
+  // Focusing the track keeps manual keyboard navigation under user control.
   await track.focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(counter).toContainText("Foto 3 de 3");
+  await page.keyboard.press("Home");
+  await expect(counter).toContainText("Foto 1 de 2");
+  await settleScroll(track);
+  const focusedAt = await track.evaluate((element) => element.scrollLeft);
   await page.waitForTimeout(4400);
-  await expect(counter).toContainText("Foto 3 de 3");
+  expect(
+    Math.abs(
+      (await track.evaluate((element) => element.scrollLeft)) - focusedAt,
+    ),
+  ).toBeLessThan(1);
   await page.keyboard.press("ArrowRight");
-  await expect(counter).toContainText("Foto 1 de 3");
+  await expect(counter).toContainText("Foto 2 de 2");
+  await settleScroll(track);
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toContainText("Foto 1 de 2");
   await settleScroll(track);
   await page.keyboard.press("ArrowLeft");
-  await expect(counter).toContainText("Foto 3 de 3");
+  await expect(counter).toContainText("Foto 2 de 2");
   await settleScroll(track);
   await page.keyboard.press("Home");
-  await expect(counter).toContainText("Foto 1 de 3");
+  await expect(counter).toContainText("Foto 1 de 2");
   await settleScroll(track);
   await page.keyboard.press("End");
-  await expect(counter).toContainText("Foto 3 de 3");
+  await expect(counter).toContainText("Foto 2 de 2");
 });
 
 test("fotos verticales y horizontales llenan marcos compactos sin desbordamiento y se respeta reducir movimiento", async ({
@@ -433,6 +522,19 @@ test("fotos verticales y horizontales llenan marcos compactos sin desbordamiento
     await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
     await track.scrollIntoViewIfNeeded();
     await page.mouse.move(0, 0);
+    const alignment = await gallery.evaluate((element) => {
+      const galleryRect = element.getBoundingClientRect();
+      const mainRect = document.querySelector("main")!.getBoundingClientRect();
+      return {
+        galleryCenter: galleryRect.left + galleryRect.width / 2,
+        mainCenter: mainRect.left + mainRect.width / 2,
+        width: galleryRect.width,
+      };
+    });
+    expect(
+      Math.abs(alignment.galleryCenter - alignment.mainCenter),
+    ).toBeLessThan(1);
+    expect(alignment.width).toBeLessThanOrEqual(760);
     await expect
       .poll(() =>
         originals(gallery)
@@ -490,4 +592,18 @@ test("fotos verticales y horizontales llenan marcos compactos sin desbordamiento
   await track.focus();
   await page.keyboard.press("ArrowRight");
   await expect(counter).toContainText("Foto 2 de 3");
+  // Reduced motion starts still, but the visitor can explicitly request playback.
+  await page.bringToFront();
+  await gallery
+    .getByRole("button", { name: "Reanudar carrusel", exact: true })
+    .click();
+  await expect(
+    gallery.getByRole("button", { name: "Pausar carrusel", exact: true }),
+  ).toBeVisible();
+  const resumedAt = await track.evaluate((element) => element.scrollLeft);
+  await page.waitForTimeout(1000);
+  const explicitMovement =
+    (await track.evaluate((element) => element.scrollLeft)) - resumedAt;
+  expect(explicitMovement).toBeGreaterThan(8);
+  expect(explicitMovement).toBeLessThan(45);
 });

@@ -2,7 +2,7 @@
   width: 100%;
   max-width: 760px;
   min-width: 0;
-  margin: 24px 0;
+  margin: 24px auto;
 }
 .gallery-heading {
   display: flex;
@@ -63,7 +63,8 @@
   gap: 12px;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  scroll-snap-type: x mandatory;
+  scroll-behavior: auto;
+  scroll-snap-type: none;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
   padding-bottom: 6px;
@@ -78,7 +79,6 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  scroll-snap-align: start;
 }
 .gallery-slide-image {
   height: 200px;
@@ -327,7 +327,7 @@
     padding: 12px 10px;
   }
   .gallery-carousel {
-    margin: 20px 0;
+    margin: 20px auto;
   }
   .gallery-heading {
     gap: 8px;
