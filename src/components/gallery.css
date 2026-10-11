@@ -1,6 +1,6 @@
 .gallery-carousel {
   width: 100%;
-  max-width: 880px;
+  max-width: 1000px;
   min-width: 0;
   margin: 24px auto;
 }
@@ -72,7 +72,7 @@
   -webkit-overflow-scrolling: touch;
 }
 .gallery-slide {
-  flex: 0 0 184px;
+  flex: 0 0 212px;
   min-width: 0;
   margin: 0;
   background: var(--surface);
@@ -81,7 +81,7 @@
   overflow: hidden;
 }
 .gallery-slide-image {
-  height: 230px;
+  height: 265px;
   background: #0c0d0c;
 }
 .gallery-slide-image img {
@@ -340,10 +340,10 @@
     gap: 10px;
   }
   .gallery-slide {
-    flex-basis: 168px;
+    flex-basis: 192px;
   }
   .gallery-slide-image {
-    height: 210px;
+    height: 240px;
   }
   .gallery-upload-card {
     padding: 20px;
