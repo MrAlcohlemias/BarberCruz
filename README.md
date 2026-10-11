@@ -38,6 +38,8 @@ En el dominio HTTPS publicado, pulsa **Instalar la app** cuando el navegador lo 
 
 El manifiesto, los iconos y el service worker permiten abrir la web en modo aplicación. Solo se guarda la interfaz pública para acceso sin conexión; las respuestas de autenticación y de la base de datos no se guardan en la caché del service worker. Las reservas reales necesitan internet. Las actualizaciones se aplican al volver a abrir la app cuando termina de actualizarse el service worker.
 
+La cabecera y las ventanas respetan las zonas seguras de la pantalla, incluida la barra superior y la cámara del iPhone. En móvil, la cabecera añade 12 píxeles de espacio y los botones de cuenta, menú y cierre tienen una zona táctil de al menos 44 píxeles.
+
 ## Comprobar
 
 ```sh

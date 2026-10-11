@@ -20,6 +20,10 @@
   --border: #373c3d;
   --danger: #f2aaa0;
   --danger-surface: #352423;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
 }
 * {
   box-sizing: border-box;
@@ -260,6 +264,9 @@ input[type="checkbox"] {
   background: var(--paper);
   position: relative;
   z-index: 15;
+  padding-top: var(--safe-area-top);
+  padding-left: var(--safe-area-left);
+  padding-right: var(--safe-area-right);
 }
 .header-inner {
   max-width: 1240px;
@@ -1499,7 +1506,10 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 28px;
+  padding: calc(28px + var(--safe-area-top))
+    max(28px, var(--safe-area-right))
+    calc(28px + var(--safe-area-bottom))
+    max(28px, var(--safe-area-left));
   overflow-y: auto;
   animation: fade-in 0.18s ease;
 }
@@ -1511,7 +1521,7 @@ main {
   max-width: 445px;
   width: 100%;
   padding: 35px;
-  max-height: calc(100dvh - 56px);
+  max-height: calc(100dvh - 56px - var(--safe-area-top) - var(--safe-area-bottom));
   overflow-y: auto;
   box-shadow: 0 30px 100px #00000080;
   animation: slide-in 0.2s ease;
@@ -2339,9 +2349,9 @@ main {
     flex-direction: column;
     border-top: 1px solid var(--border);
     position: absolute;
-    top: 73px;
-    left: 0;
-    right: 0;
+    top: 100%;
+    left: var(--safe-area-left);
+    right: var(--safe-area-right);
     box-shadow: 0 12px 20px #00000055;
   }
   .mobile-menu > button {
@@ -2826,12 +2836,15 @@ main {
     padding: 8px 10px;
   }
   .modal-backdrop {
-    padding: 14px;
+    padding: calc(14px + var(--safe-area-top))
+      max(14px, var(--safe-area-right))
+      calc(14px + var(--safe-area-bottom))
+      max(14px, var(--safe-area-left));
     align-items: center;
     background: #000000a3;
   }
   .modal {
-    max-height: calc(100dvh - 28px);
+    max-height: calc(100dvh - 28px - var(--safe-area-top) - var(--safe-area-bottom));
     border-radius: 14px;
     padding: 30px 23px;
     background: var(--surface);
@@ -2844,7 +2857,7 @@ main {
   .modal h2 {
     font-size: 31px;
     letter-spacing: -1.2px;
-    padding-right: 8px;
+    padding-right: 32px;
   }
   .modal-emblem {
     width: 51px;
@@ -2969,6 +2982,25 @@ main {
   .offline-banner {
     font-size: 10px;
     padding: 12px 20px;
+  }
+}
+@media (max-width: 620px), (pointer: coarse) {
+  .site-header {
+    padding-top: calc(var(--safe-area-top) + 12px);
+  }
+  .profile-trigger,
+  .login-trigger,
+  .mobile-menu-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .modal-close,
+  .admin-modal-close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .admin-modal h2 {
+    padding-right: 36px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

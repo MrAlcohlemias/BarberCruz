@@ -686,7 +686,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 22px;
+  padding: calc(22px + var(--safe-area-top))
+    max(22px, var(--safe-area-right))
+    calc(22px + var(--safe-area-bottom))
+    max(22px, var(--safe-area-left));
   overflow-y: auto;
 }
 .admin-modal {
@@ -698,7 +701,7 @@
   max-width: 430px;
   padding: 32px;
   box-shadow: 0 20px 90px #00000080;
-  max-height: calc(100dvh - 44px);
+  max-height: calc(100dvh - 44px - var(--safe-area-top) - var(--safe-area-bottom));
   overflow-y: auto;
 }
 .admin-modal-close {
