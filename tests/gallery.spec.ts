@@ -534,7 +534,7 @@ test("fotos verticales y horizontales llenan marcos compactos sin desbordamiento
     expect(
       Math.abs(alignment.galleryCenter - alignment.mainCenter),
     ).toBeLessThan(1);
-    expect(alignment.width).toBeLessThanOrEqual(760);
+    expect(alignment.width).toBeLessThanOrEqual(880);
     await expect
       .poll(() =>
         originals(gallery)
@@ -577,8 +577,8 @@ test("fotos verticales y horizontales llenan marcos compactos sin desbordamiento
       expect(frame.objectPosition).toBe("50% 50%");
       expect(frame.imageWidth).toBeCloseTo(frame.width, 0);
       expect(frame.imageHeight).toBeCloseTo(frame.height, 0);
-      expect(frame.width).toBeLessThanOrEqual(width === 1440 ? 160 : 144);
-      expect(frame.height).toBeLessThanOrEqual(width === 1440 ? 200 : 180);
+      expect(frame.width).toBeLessThanOrEqual(width === 1440 ? 184 : 168);
+      expect(frame.height).toBeLessThanOrEqual(width === 1440 ? 230 : 210);
     }
     expect(
       await page.evaluate(
