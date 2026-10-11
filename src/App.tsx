@@ -98,9 +98,13 @@ function GoogleIcon() {
   );
 }
 function LoginOptions({ onSuccess }: { onSuccess: () => void }) {
-  const { isDemo, signInGoogle, signInDemo } = useApp();
+  const { isDemo, canExploreAdminDemo, signInGoogle, signInDemo, signInAdmin } =
+    useApp();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [adminLogin, setAdminLogin] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   async function login(action: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -116,6 +120,7 @@ function LoginOptions({ onSuccess }: { onSuccess: () => void }) {
   return (
     <div className="login-options">
       <button
+        type="button"
         className="btn btn-google full"
         disabled={busy || isDemo}
         onClick={() => void login(signInGoogle)}
@@ -131,25 +136,96 @@ function LoginOptions({ onSuccess }: { onSuccess: () => void }) {
             citas de prueba solo se guardan en este navegador.
           </p>
           <button
+            type="button"
             className="btn btn-dark full"
             disabled={busy}
             onClick={() => void login(() => signInDemo("customer"))}
           >
             Probar como cliente <ArrowRight size={18} />
           </button>
-          <button
-            className="text-button demo-admin-link"
-            disabled={busy}
-            onClick={() => void login(() => signInDemo("admin"))}
-          >
-            <ShieldCheck size={15} /> Explorar el panel de administración
-          </button>
+          {canExploreAdminDemo && (
+            <button
+              type="button"
+              className="text-button demo-admin-link"
+              disabled={busy}
+              onClick={() => void login(() => signInDemo("admin"))}
+            >
+              <ShieldCheck size={15} /> Explorar el panel de administración
+            </button>
+          )}
         </>
       ) : (
         <p className="fine-print">
           Solo usaremos tu cuenta para identificarte y gestionar tus citas.
         </p>
       )}
+      <button
+        type="button"
+        className="text-button demo-admin-link"
+        aria-expanded={adminLogin}
+        onClick={() => {
+          setAdminLogin(!adminLogin);
+          setError("");
+          setPassword("");
+        }}
+      >
+        <ShieldCheck size={15} /> Acceso de administrador
+      </button>
+      {adminLogin &&
+        (isDemo ? (
+          <p className="demo-explanation">
+            El acceso de administrador está cerrado en esta demo publicada. Para
+            activarlo, conecta Supabase y crea la cuenta del barbero con su
+            correo y contraseña.
+          </p>
+        ) : (
+          <div className="admin-login-fields">
+            <label className="field">
+              Correo del administrador
+              <input
+                type="email"
+                autoComplete="username"
+                value={email}
+                maxLength={254}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </label>
+            <label className="field">
+              Contraseña
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                maxLength={128}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    if (email && password && !busy)
+                      void login(() => signInAdmin(email, password));
+                  }
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-dark full"
+              disabled={busy || !email.trim() || !password}
+              onClick={() =>
+                void login(async () => {
+                  try {
+                    await signInAdmin(email, password);
+                  } finally {
+                    setPassword("");
+                  }
+                })
+              }
+            >
+              {busy ? "Entrando…" : "Entrar como administrador"}{" "}
+              <ShieldCheck size={17} />
+            </button>
+          </div>
+        ))}
       {error && (
         <p className="form-error" role="alert">
           {error}
@@ -610,10 +686,31 @@ function ProfileEditor({
   onClose: () => void;
   onToast: (s: string) => void;
 }) {
-  const { profile, saveProfile } = useApp();
+  const { profile, saveProfile, isDemo, changeAdminPassword } = useApp();
   const [draft, setDraft] = useState(profile!);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [repeatPassword, setRepeatPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  async function updatePassword() {
+    setError("");
+    if (newPassword !== repeatPassword) {
+      setError("Las dos contraseñas deben coincidir.");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await changeAdminPassword(newPassword);
+      setNewPassword("");
+      setRepeatPassword("");
+      onToast("Contraseña actualizada.");
+    } catch (err) {
+      setError(failMessage(err));
+    } finally {
+      setChangingPassword(false);
+    }
+  }
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -711,6 +808,50 @@ function ProfileEditor({
           <Check size={18} />
         </button>
       </form>
+      {profile?.role === "admin" && !isDemo && (
+        <form
+          className="password-settings"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void updatePassword();
+          }}
+        >
+          <h3>Contraseña de administrador</h3>
+          <p className="fine-print">
+            Tu contraseña solo se envía al servicio de autenticación. Usa al
+            menos 12 caracteres.
+          </p>
+          <label className="field">
+            Nueva contraseña
+            <input
+              type="password"
+              autoComplete="new-password"
+              maxLength={128}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            Repetir contraseña
+            <input
+              type="password"
+              autoComplete="new-password"
+              maxLength={128}
+              value={repeatPassword}
+              onChange={(e) => setRepeatPassword(e.target.value)}
+            />
+          </label>
+          <button
+            type="submit"
+            className="btn btn-ghost full"
+            disabled={
+              changingPassword || newPassword.length < 12 || !repeatPassword
+            }
+          >
+            {changingPassword ? "Actualizando…" : "Cambiar contraseña"}
+          </button>
+        </form>
+      )}
     </Modal>
   );
 }
@@ -1529,8 +1670,10 @@ export default function App() {
           <span className="status-dot" />
           <b>Demo local</b>
           <span>
-            Explora como cliente o administrador. Las citas de prueba se guardan
-            en este dispositivo.
+            {app.canExploreAdminDemo
+              ? "Pruebas locales de cliente y administrador."
+              : "Vista de prueba para clientes; administración cerrada."}{" "}
+            Las citas de prueba se guardan en este dispositivo.
           </span>
         </div>
       )}

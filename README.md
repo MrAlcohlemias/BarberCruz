@@ -14,11 +14,11 @@ npm ci
 npm run dev
 ```
 
-Sin configuración de Supabase se abre una **demo local claramente identificada**. Pulsa **Entrar → Probar como cliente**, o **Explorar el panel de administración** para comprobar ambas experiencias. Los datos de prueba se conservan en ese navegador; no son reservas reales ni se comparten con otros móviles. El cliente de demo comienza con tres cortes anteriores de ejemplo. Puedes restablecerlos desde **Privacidad → Borrar datos de esta demo**.
+Sin configuración de Supabase se abre una **demo local claramente identificada**. Pulsa **Entrar → Probar como cliente**. El acceso **Explorar el panel de administración** existe únicamente en desarrollo local; está desactivado en las compilaciones publicadas. Para administrar la web publicada hace falta una cuenta real de Supabase. Los datos de prueba se conservan en ese navegador; no son reservas reales ni se comparten con otros móviles. El cliente de demo comienza con tres cortes anteriores de ejemplo. Puedes restablecerlos desde **Privacidad → Borrar datos de esta demo**.
 
 ## Cuentas y reservas reales
 
-Sigue [la guía de Supabase y Google](supabase/README.md): crea el proyecto, ejecuta [schema.sql](supabase/schema.sql), activa Google y configura las dos variables públicas de [.env.example](.env.example). Entra con la cuenta Google de tu amigo y dale el rol de administrador desde el SQL Editor. Al conectar Supabase desaparecen los accesos de demostración.
+Sigue [la guía de Supabase y Google](supabase/README.md): crea el proyecto, ejecuta [schema.sql](supabase/schema.sql), activa Google y configura las dos variables públicas de [.env.example](.env.example). Crea la cuenta de tu amigo con correo y contraseña en Supabase (o usa su cuenta Google) y dale el rol de administrador desde el SQL Editor. El formulario **Acceso de administrador** comprueba su cuenta y el rol en la base de datos. Desde **Mi perfil** podrá cambiar su contraseña. Al conectar Supabase desaparecen los accesos de demostración.
 
 No incluyas secretos OAuth ni claves `service_role` en variables `VITE_`. El navegador utiliza la clave pública del proyecto; las políticas de la base de datos protegen los perfiles y las citas. Las reservas se validan de forma atómica en PostgreSQL para evitar solapes y canjes duplicados.
 

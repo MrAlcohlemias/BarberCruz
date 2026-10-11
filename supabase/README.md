@@ -30,9 +30,13 @@ Usa la clave pública **anon** o **publishable** del proyecto. La clave `service
 
 En el alojamiento configura las mismas variables antes de compilar. Vite las incorpora al build; después de modificarlas hay que volver a compilar y publicar. No añadas `.env.local` a Git.
 
-## 4. Dar el rol de administrador a tu amigo
+## 4. Crear el administrador con correo y contraseña
 
-Pídele que inicie sesión con Google una vez, para crear su perfil. Después, ejecuta en el SQL Editor, sustituyendo únicamente el correo por el suyo:
+El botón de administración de prueba solo existe en desarrollo local. **La web compilada y publicada no permite entrar como administrador de demo**, ni restaura una sesión local de admin de versiones anteriores. No hay contraseña predeterminada ni una contraseña dentro del código.
+
+1. En Supabase, comprueba que **Authentication → Sign In / Providers → Email** está activado.
+2. En **Authentication → Users → Add user → Create new user**, crea la cuenta de tu amigo con su correo y una contraseña única de al menos 12 caracteres. Introduce la contraseña directamente en Supabase; no la compartas en el chat ni la incluyas en variables `VITE_`. Confirma/verifica el correo según las opciones del panel.
+3. Ejecuta en el SQL Editor, sustituyendo el correo por el de esa cuenta:
 
 ```sql
 update public.profiles
@@ -40,7 +44,11 @@ set role = 'admin'
 where lower(email) = lower('correo-real-de-tu-amigo@example.com');
 ```
 
-Comprueba que el correo corresponde a la cuenta correcta y que el editor indica una sola fila actualizada. Tu amigo puede volver a entrar o actualizar la página para ver su panel. No hay una contraseña compartida ni un botón público para convertirse en administrador. Los usuarios no pueden modificar el rol ni su email mediante la API.
+Comprueba que se actualiza una sola fila y que corresponde a tu amigo. Después, en Barber Cruz: **Entrar → Acceso de administrador**, introduce ese correo y contraseña. Una cuenta con rol `customer` será rechazada por este acceso. Las políticas SQL también comprueban el rol al gestionar citas, precios y horarios; no basta con cambiar un dato en el navegador.
+
+Tu amigo podrá cambiar su contraseña desde **Mi perfil → Contraseña de administrador**. La contraseña solo se envía a Supabase Auth por HTTPS, nunca se guarda en el almacenamiento local de la demo ni en el repositorio. Activa las opciones de seguridad de contraseñas y de cambio de contraseña de Supabase; si requiere autenticación reciente, vuelve a iniciar sesión antes de cambiarla.
+
+Si prefieres Google para el administrador, configura el proveedor descrito arriba, inicia sesión una vez con su cuenta y asigna el rol a ese perfil con el mismo SQL. El acceso de clientes con Google puede configurarse después; no es necesario para habilitar primero el administrador con correo y contraseña.
 
 ## 5. Reservas y puntos
 

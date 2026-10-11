@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { getDemoSessionProfile } from "./auth";
 import type {
   AppData,
   Appointment,
@@ -49,7 +50,10 @@ interface AppContextValue {
   loading: boolean;
   error: string;
   isDemo: boolean;
+  canExploreAdminDemo: boolean;
   signInGoogle: () => Promise<void>;
+  signInAdmin: (email: string, password: string) => Promise<void>;
+  changeAdminPassword: (password: string) => Promise<void>;
   signInDemo: (role: "customer" | "admin") => Promise<void>;
   signOut: () => Promise<void>;
   saveProfile: (profile: Profile) => Promise<void>;
@@ -224,9 +228,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(() => {
     if (db) return null;
     try {
-      return (
-        data.profiles.find((p) => p.id === localStorage.getItem(SESSION_KEY)) ||
-        null
+      return getDemoSessionProfile(
+        data.profiles,
+        localStorage.getItem(SESSION_KEY),
+        import.meta.env.DEV,
       );
     } catch {
       return null;
@@ -241,10 +246,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const fresh = demoData();
       let current: Profile | null = null;
       try {
-        current =
-          fresh.profiles.find(
-            (person) => person.id === localStorage.getItem(SESSION_KEY),
-          ) || null;
+        current = getDemoSessionProfile(
+          fresh.profiles,
+          localStorage.getItem(SESSION_KEY),
+          import.meta.env.DEV,
+        );
       } catch {
         /* Browsing without a demo session remains possible. */
       }
@@ -355,10 +361,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const fresh = demoData();
         let current: Profile | null = null;
         try {
-          current =
-            fresh.profiles.find(
-              (p) => p.id === localStorage.getItem(SESSION_KEY),
-            ) || null;
+          current = getDemoSessionProfile(
+            fresh.profiles,
+            localStorage.getItem(SESSION_KEY),
+            import.meta.env.DEV,
+          );
         } catch {
           /* Keep the signed-out view when storage is unavailable. */
         }
@@ -395,6 +402,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return current;
   }
   function requireAdmin() {
+    if (!db && !import.meta.env.DEV)
+      throw new Error(
+        "La administración requiere una cuenta real. Conecta Supabase para activarla.",
+      );
     if (requireProfile().role !== "admin")
       throw new Error("Solo el administrador puede realizar esta acción.");
   }
@@ -411,6 +422,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   async function signInDemo(role: "customer" | "admin") {
     if (db) throw new Error("La demo está desactivada en la web conectada.");
+    if (role === "admin" && !import.meta.env.DEV)
+      throw new Error(
+        "El acceso de administrador de prueba está desactivado en la web publicada.",
+      );
     await mutateDemo((fresh) => fresh);
     const current = dataRef.current.profiles.find(
       (p) => p.id === (role === "admin" ? "demo-admin" : "demo-customer"),
@@ -428,6 +443,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     profileRef.current = current;
     setProfile(current);
+  }
+  async function signInAdmin(email: string, password: string) {
+    if (!db)
+      throw new Error(
+        "El acceso de administrador se activará al conectar Supabase y crear tu cuenta.",
+      );
+    const result = await db.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+    if (result.error)
+      throw new Error(
+        "No se ha podido iniciar sesión. Comprueba el correo y la contraseña.",
+      );
+    const identity = await db
+      .from("profiles")
+      .select("role")
+      .eq("id", result.data.user.id)
+      .single();
+    if (identity.error || identity.data.role !== "admin") {
+      await db.auth.signOut();
+      await refresh();
+      throw new Error("Esta cuenta no tiene acceso de administrador.");
+    }
+    await refresh();
+  }
+  async function changeAdminPassword(password: string) {
+    requireAdmin();
+    if (!db)
+      throw new Error(
+        "La demo no tiene contraseña. Conecta una cuenta real para cambiarla.",
+      );
+    if (password.length < 12 || password.length > 128)
+      throw new Error("Usa una contraseña de entre 12 y 128 caracteres.");
+    const result = await db.auth.updateUser({ password });
+    if (result.error)
+      throw new Error(
+        "No se ha podido cambiar la contraseña. Vuelve a iniciar sesión y comprueba la configuración de seguridad de tu cuenta.",
+      );
   }
   async function signOut() {
     if (db) {
@@ -767,7 +821,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         loading,
         error,
         isDemo: !hasBackend,
+        canExploreAdminDemo: !hasBackend && import.meta.env.DEV,
         signInGoogle,
+        signInAdmin,
+        changeAdminPassword,
         signInDemo,
         signOut,
         saveProfile,
