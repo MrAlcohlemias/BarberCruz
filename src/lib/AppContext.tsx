@@ -9,6 +9,7 @@ import {
 import type { ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { getDemoSessionProfile } from "./auth";
+import { avatarObjectPath, photoDataUrl } from "./avatar";
 import type {
   AppData,
   Appointment,
@@ -56,10 +57,15 @@ interface AppContextValue {
   changeAdminPassword: (password: string) => Promise<void>;
   signInDemo: (role: "customer" | "admin") => Promise<void>;
   signOut: () => Promise<void>;
-  saveProfile: (profile: Profile) => Promise<void>;
+  saveProfile: (profile: Profile, photo?: Blob) => Promise<void>;
   bookAppointment: (input: BookingInput) => Promise<Appointment>;
   updateAppointment: (id: string, status: AppointmentStatus) => Promise<void>;
-  reschedule: (id: string, date: string, time: string) => Promise<void>;
+  reschedule: (
+    id: string,
+    date: string,
+    time: string,
+    note?: string,
+  ) => Promise<void>;
   updateServices: (services: Service[]) => Promise<void>;
   updateSettings: (settings: Settings) => Promise<void>;
   updateBlocks: (blocks: Block[]) => Promise<void>;
@@ -204,6 +210,13 @@ function profileFromRow(row: Record<string, unknown>): Profile {
     role: row.role === "admin" ? "admin" : "customer",
   };
 }
+async function resolveProfilePhoto(profile: Profile): Promise<Profile> {
+  if (!db || !profile.avatar.startsWith("avatars/")) return profile;
+  const path = avatarObjectPath(profile.avatar, profile.id);
+  if (!path) return profile;
+  const result = await db.storage.from("avatars").createSignedUrl(path, 3600);
+  return { ...profile, avatarUrl: result.data?.signedUrl };
+}
 function appointmentFromRow(row: Record<string, unknown>): Appointment {
   return {
     id: String(row.id),
@@ -273,7 +286,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .eq("id", userId)
           .single();
         if (result.error) throw result.error;
-        current = profileFromRow(result.data);
+        current = await resolveProfilePhoto(profileFromRow(result.data));
       }
       const results = await Promise.all([
         db.from("services").select("*").order("price"),
@@ -290,18 +303,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ]);
       for (const result of results) if (result.error) throw result.error;
       const [services, settings, appointments, profiles, blocks] = results;
+      const visibleProfiles =
+        current?.role === "admin"
+          ? await Promise.all(
+              (profiles.data || []).map((p) =>
+                resolveProfilePhoto(
+                  profileFromRow(p as Record<string, unknown>),
+                ),
+              ),
+            )
+          : current
+            ? [current]
+            : [];
       const fresh: AppData = {
         services: services.data as Service[],
         settings: (settings.data as { payload: Settings }).payload,
         appointments: (appointments.data || []).map(appointmentFromRow),
-        profiles:
-          current?.role === "admin"
-            ? (profiles.data || []).map((p) =>
-                profileFromRow(p as Record<string, unknown>),
-              )
-            : current
-              ? [current]
-              : [],
+        profiles: visibleProfiles,
         blocks: (blocks.data || []).map((b: Record<string, unknown>) => ({
           id: String(b.id),
           date: String(b.date),
@@ -343,11 +361,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("online", onOnline);
+    // Renew private photo URLs before their one-hour expiry while the app stays open.
+    const photoRefresh = window.setInterval(
+      () => void refresh(),
+      50 * 60 * 1000,
+    );
     return () => {
       subscription.subscription.unsubscribe();
       void db!.removeChannel(channel);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
+      window.clearInterval(photoRefresh);
     };
   }, [refresh]);
   useEffect(() => {
@@ -493,15 +517,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     profileRef.current = null;
     setProfile(null);
   }
-  async function saveProfile(next: Profile) {
+  async function saveProfile(next: Profile, photo?: Blob) {
     const current = requireProfile();
     if (!next.name.trim()) throw new Error("Escribe tu nombre.");
+    if (photo && (photo.type !== "image/jpeg" || photo.size > 2 * 1024 * 1024))
+      throw new Error(
+        "No se ha podido preparar la foto. Selecciónala de nuevo.",
+      );
+    let avatar = next.avatar;
+    let uploadedPath: string | null = null;
+    if (photo) {
+      if (db) {
+        uploadedPath = `${current.id}/${crypto.randomUUID()}.jpg`;
+        const upload = await db.storage
+          .from("avatars")
+          .upload(uploadedPath, photo, {
+            contentType: "image/jpeg",
+            upsert: false,
+            cacheControl: "3600",
+          });
+        if (upload.error)
+          throw new Error(
+            "No se ha podido subir la foto. Comprueba la conexión y que el almacenamiento de fotos esté configurado.",
+          );
+        avatar = `avatars/${uploadedPath}`;
+      } else avatar = await photoDataUrl(photo);
+    }
     const safe = {
       ...current,
       name: next.name.trim().slice(0, 60),
       bio: next.bio.slice(0, 250),
       preferredStyle: next.preferredStyle.slice(0, 80),
-      avatar: next.avatar.slice(0, 2048),
+      avatar: db ? avatar.slice(0, 2048) : avatar,
+      avatarUrl: undefined,
     };
     if (db) {
       const result = await db
@@ -512,8 +560,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
           preferred_style: safe.preferredStyle,
           avatar: safe.avatar,
         })
-        .eq("id", current.id);
-      if (result.error) throw result.error;
+        .eq("id", current.id)
+        .select("id")
+        .single();
+      if (result.error) {
+        if (uploadedPath)
+          await db.storage.from("avatars").remove([uploadedPath]);
+        throw result.error;
+      }
+      // The database save has succeeded. Reflect it even if a later refresh fails.
+      const saved = await resolveProfilePhoto(safe);
+      profileRef.current = saved;
+      setProfile(saved);
+      const updated = {
+        ...dataRef.current,
+        profiles: dataRef.current.profiles.map((p) =>
+          p.id === current.id ? saved : p,
+        ),
+      };
+      dataRef.current = updated;
+      setData(updated);
+      const previousPath = avatarObjectPath(current.avatar, current.id);
+      if (previousPath && current.avatar !== safe.avatar)
+        await db.storage.from("avatars").remove([previousPath]);
       await refresh();
     } else {
       await mutateDemo((fresh) => ({
@@ -607,7 +676,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     }
   }
-  async function reschedule(id: string, date: string, time: string) {
+  async function reschedule(
+    id: string,
+    date: string,
+    time: string,
+    note?: string,
+  ) {
     requireAdmin();
     if (db) {
       const current = dataRef.current.appointments.find((a) => a.id === id);
@@ -617,18 +691,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         (s) => s.id === current.serviceId,
       );
       if (
-        !service ||
-        !getSlots(
-          date,
-          { ...service, duration: current.duration ?? service.duration },
-          dataRef.current,
-          { excludeId: id },
-        ).includes(time)
+        (date !== current.date || time !== current.time) &&
+        (!service ||
+          !getSlots(
+            date,
+            { ...service, duration: current.duration ?? service.duration },
+            dataRef.current,
+            { excludeId: id },
+          ).includes(time))
       )
         throw new Error("Ese hueco no está disponible.");
       const result = await db
         .from("appointments")
-        .update({ date, time })
+        .update({
+          date,
+          time,
+          ...(note !== undefined ? { note: note.trim().slice(0, 500) } : {}),
+        })
         .eq("id", id)
         .select("id")
         .single();
@@ -643,22 +722,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           (s) => s.id === latest.serviceId,
         );
         if (
-          !latestService ||
-          !getSlots(
-            date,
-            {
-              ...latestService,
-              duration: latest.duration ?? latestService.duration,
-            },
-            fresh,
-            { excludeId: id },
-          ).includes(time)
+          (date !== latest.date || time !== latest.time) &&
+          (!latestService ||
+            !getSlots(
+              date,
+              {
+                ...latestService,
+                duration: latest.duration ?? latestService.duration,
+              },
+              fresh,
+              { excludeId: id },
+            ).includes(time))
         )
           throw new Error("Ese hueco no está disponible.");
         return {
           ...fresh,
           appointments: fresh.appointments.map((a) =>
-            a.id === id ? { ...a, date, time } : a,
+            a.id === id
+              ? {
+                  ...a,
+                  date,
+                  time,
+                  note: note === undefined ? a.note : note.trim().slice(0, 500),
+                }
+              : a,
           ),
         };
       });

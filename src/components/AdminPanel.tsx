@@ -18,6 +18,7 @@ import type {
   Appointment,
   AppointmentStatus,
   Block,
+  Profile,
   Service,
   Settings,
 } from "../lib/types";
@@ -28,6 +29,7 @@ import {
   getSlots,
   today,
 } from "../lib/domain";
+import { avatarSource } from "../lib/avatar";
 import "./admin.css";
 
 export interface AdminPanelProps {
@@ -36,7 +38,12 @@ export interface AdminPanelProps {
   onUpdateServices: (services: Service[]) => Promise<void>;
   onUpdateSettings: (settings: Settings) => Promise<void>;
   onUpdateBlocks: (blocks: Block[]) => Promise<void>;
-  onReschedule: (id: string, date: string, time: string) => Promise<void>;
+  onReschedule: (
+    id: string,
+    date: string,
+    time: string,
+    note?: string,
+  ) => Promise<void>;
   onToast: (message: string) => void;
 }
 
@@ -57,6 +64,42 @@ const weekdays = [
 ];
 const minutes = (time: string) =>
   Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+
+function AdminAvatar({ profile }: { profile?: Profile }) {
+  const imageSource = profile ? avatarSource(profile) || "" : "";
+  const [failedSource, setFailedSource] = useState("");
+  useEffect(() => setFailedSource(""), [imageSource]);
+  const initials = (profile?.name || "Cliente")
+    .split(" ")
+    .map((word) => word[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  const emoji =
+    profile?.avatar &&
+    !/^https:\/\//i.test(profile.avatar) &&
+    !profile.avatar.startsWith("avatars/") &&
+    profile.avatar.length <= 20
+      ? profile.avatar
+      : "";
+
+  return (
+    <div className="admin-avatar" aria-hidden="true">
+      {imageSource && failedSource !== imageSource ? (
+        <img
+          src={imageSource}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onError={() => setFailedSource(imageSource)}
+        />
+      ) : (
+        emoji || initials
+      )}
+    </div>
+  );
+}
 
 function canComplete(
   appointment: Appointment,
@@ -115,6 +158,7 @@ export default function AdminPanel({
   } | null>(null);
   const [newDate, setNewDate] = useState(currentDate);
   const [newTime, setNewTime] = useState("");
+  const [newNote, setNewNote] = useState("");
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -213,8 +257,9 @@ export default function AdminPanel({
     action: "reschedule" | "cancel",
   ) {
     setError("");
-    setNewDate(appointment.date < currentDate ? currentDate : appointment.date);
-    setNewTime("");
+    setNewDate(appointment.date);
+    setNewTime(appointment.time);
+    setNewNote(appointment.note);
     setModal({ appointment, action });
   }
 
@@ -331,15 +376,24 @@ export default function AdminPanel({
     event.preventDefault();
     if (!modal) return;
     if (modal.action === "reschedule") {
-      if (newDate < currentDate || !slots.includes(newTime)) {
+      const sameSlot =
+        newDate === modal.appointment.date &&
+        newTime === modal.appointment.time;
+      if (!sameSlot && (newDate < currentDate || !slots.includes(newTime))) {
         setError("Elige una fecha y una hora disponibles.");
         return;
       }
       if (
         await run(
           "reschedule",
-          () => onReschedule(modal.appointment.id, newDate, newTime),
-          "Cita reprogramada.",
+          () =>
+            onReschedule(
+              modal.appointment.id,
+              newDate,
+              newTime,
+              newNote.trim(),
+            ),
+          "Cita actualizada.",
         )
       )
         setModal(null);
@@ -571,14 +625,7 @@ export default function AdminPanel({
                             : `${appointment.duration ?? service?.duration ?? 30} min`}
                         </span>
                       </div>
-                      <div className="admin-avatar" aria-hidden="true">
-                        {(profile?.name ?? "Cliente")
-                          .split(" ")
-                          .map((word) => word[0])
-                          .slice(0, 2)
-                          .join("")
-                          .toUpperCase()}
-                      </div>
+                      <AdminAvatar profile={profile} />
                       <div className="admin-appt-details">
                         <h3>
                           {profile?.name || "Cliente"}
@@ -635,7 +682,7 @@ export default function AdminPanel({
                             disabled={!!pending}
                             onClick={() => openModal(appointment, "reschedule")}
                           >
-                            Mover
+                            Editar cita
                           </button>
                           <button
                             type="button"
@@ -1118,7 +1165,7 @@ export default function AdminPanel({
               if (event.key === "Tab") {
                 const focusable =
                   modalRef.current?.querySelectorAll<HTMLElement>(
-                    "button:not(:disabled), input:not(:disabled), select:not(:disabled)",
+                    "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
                   );
                 if (!focusable?.length) return;
                 const first = focusable[0];
@@ -1147,7 +1194,7 @@ export default function AdminPanel({
             </span>
             <h2 id="admin-modal-title">
               {modal.action === "reschedule"
-                ? "Un nuevo hueco"
+                ? "Editar cita"
                 : "¿Cancelar esta cita?"}
             </h2>
             <p>
@@ -1176,8 +1223,17 @@ export default function AdminPanel({
                     <input
                       type="date"
                       required
-                      min={currentDate}
-                      max={addDays(currentDate, data.settings.advanceDays)}
+                      min={
+                        modal.appointment.date < currentDate
+                          ? modal.appointment.date
+                          : currentDate
+                      }
+                      max={
+                        modal.appointment.date >
+                        addDays(currentDate, data.settings.advanceDays)
+                          ? modal.appointment.date
+                          : addDays(currentDate, data.settings.advanceDays)
+                      }
                       value={newDate}
                       onChange={(event) => {
                         setNewDate(event.target.value);
@@ -1197,6 +1253,12 @@ export default function AdminPanel({
                           ? "Elige una hora"
                           : "No hay horas disponibles"}
                       </option>
+                      {newDate === modal.appointment.date &&
+                        !slots.includes(modal.appointment.time) && (
+                          <option value={modal.appointment.time}>
+                            {modal.appointment.time} (hora actual)
+                          </option>
+                        )}
                       {slots.map((time) => (
                         <option key={time} value={time}>
                           {time}
@@ -1205,9 +1267,19 @@ export default function AdminPanel({
                     </select>
                   </label>
                   <p className="admin-helper">
-                    Solo aparecen horas libres dentro del horario de la
-                    barbería.
+                    Elige una nueva hora libre o conserva la actual para editar
+                    las notas.
                   </p>
+                  <label>
+                    Notas de la cita (opcional)
+                    <textarea
+                      rows={3}
+                      maxLength={500}
+                      value={newNote}
+                      placeholder="Por ejemplo: el cliente ha llamado para cambiar la hora."
+                      onChange={(event) => setNewNote(event.target.value)}
+                    />
+                  </label>
                 </>
               ) : (
                 <p className="admin-cancel-copy">
@@ -1234,7 +1306,7 @@ export default function AdminPanel({
                   {pending
                     ? "Guardando…"
                     : modal.action === "reschedule"
-                      ? "Guardar nueva cita"
+                      ? "Guardar cambios"
                       : "Sí, cancelar cita"}
                 </button>
               </div>

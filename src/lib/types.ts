@@ -4,6 +4,8 @@ export interface Profile {
   name: string;
   email: string;
   avatar: string;
+  /** Temporary signed URL for a private uploaded photo; never stored in the database. */
+  avatarUrl?: string;
   bio: string;
   preferredStyle: string;
   role: "customer" | "admin";

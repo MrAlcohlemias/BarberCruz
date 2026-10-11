@@ -1,5 +1,5 @@
 // Cache only the public app shell. Auth, API responses and bookings always use the network.
-const CACHE = "barber-cruz-v1";
+const CACHE = "barber-cruz-v2";
 const SHELL = [
   "/",
   "/index.html",

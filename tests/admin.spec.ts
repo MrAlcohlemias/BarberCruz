@@ -35,6 +35,14 @@ async function seedAppointments(page: Page) {
     ) {
       future = add(future, 1);
     }
+    let nextFuture = add(future, 1);
+    while (
+      !data.settings.openingHours[
+        new Date(`${nextFuture}T12:00:00Z`).getUTCDay()
+      ]?.open
+    ) {
+      nextFuture = add(nextFuture, 1);
+    }
     const past = add(current, -1);
     data.appointments.push(
       ...[
@@ -68,7 +76,7 @@ async function seedAppointments(page: Page) {
       })),
     );
     localStorage.setItem(key, JSON.stringify(data));
-    return { future, past };
+    return { future, past, nextFuture };
   });
   await page.reload();
   await openAdmin(page);
@@ -181,10 +189,10 @@ test("guarda turnos, rechaza horarios y bloqueos inválidos y permite eliminar d
   await expect(page.locator(".admin-block-list")).toHaveCount(0);
 });
 
-test("reprograma, cancela y completa citas; el cliente recibe su sello", async ({
+test("edita fecha, hora y notas; conserva las condiciones de la cita y el cliente recibe su sello", async ({
   page,
 }) => {
-  const { future, past } = await seedAppointments(page);
+  const { future, past, nextFuture } = await seedAppointments(page);
   await page.getByRole("tab", { name: "Servicios", exact: true }).click();
   await page.getByLabel("Duración (min)", { exact: true }).fill("60");
   await page.getByRole("button", { name: "Guardar servicios" }).click();
@@ -199,22 +207,77 @@ test("reprograma, cancela y completa citas; el cliente recibe su sello", async (
   await expect(
     appointment.getByRole("button", { name: "Completar", exact: true }),
   ).toBeDisabled();
-  await appointment.getByRole("button", { name: "Mover", exact: true }).click();
-  let dialog = page.getByRole("dialog", { name: "Un nuevo hueco" });
+  await appointment
+    .getByRole("button", { name: "Editar cita", exact: true })
+    .click();
+  let dialog = page.getByRole("dialog", { name: "Editar cita" });
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(
-    appointment.getByRole("button", { name: "Mover", exact: true }),
+    appointment.getByRole("button", { name: "Editar cita", exact: true }),
   ).toBeFocused();
-  await appointment.getByRole("button", { name: "Mover", exact: true }).click();
-  dialog = page.getByRole("dialog", { name: "Un nuevo hueco" });
-  await dialog.getByLabel("Nueva fecha").fill(future);
+  await appointment
+    .getByRole("button", { name: "Editar cita", exact: true })
+    .click();
+  dialog = page.getByRole("dialog", { name: "Editar cita" });
+  await expect(dialog.getByLabel("Nueva fecha")).toHaveValue(future);
+  await expect(dialog.getByLabel("Hora disponible")).toHaveValue("11:00");
+  await expect(dialog.getByLabel("Notas de la cita (opcional)")).toHaveValue(
+    "Cita de prueba del panel",
+  );
+  await expect(
+    dialog.getByLabel("Hora disponible").locator('option[value="11:45"]'),
+  ).toHaveCount(1);
+  await expect(
+    dialog.getByLabel("Hora disponible").locator('option[value="12:15"]'),
+  ).toHaveCount(0);
+  await dialog.getByLabel("Nueva fecha").fill(nextFuture);
   await dialog.getByLabel("Hora disponible").selectOption("11:45");
-  await dialog.getByRole("button", { name: "Guardar nueva cita" }).click();
+  await dialog
+    .getByLabel("Notas de la cita (opcional)")
+    .fill("El cliente ha llamado para cambiar el día y la hora.");
+  await dialog.getByRole("button", { name: "Guardar cambios" }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.reload();
+  await openAdmin(page);
+  await page.getByLabel("Mostrar fechas").selectOption("upcoming");
+  const editedAppointment = page
+    .locator(".admin-appointment")
+    .filter({ hasText: "11:45" });
+  await expect(editedAppointment).toContainText("Alex");
+  await expect(editedAppointment).toContainText(
+    "El cliente ha llamado para cambiar el día y la hora.",
+  );
+  expect(
+    await page.evaluate(() => {
+      const data = JSON.parse(
+        localStorage.getItem("barbercruz.demo.v1")!,
+      ) as AppData;
+      const appointment = data.appointments.find(
+        (item) => item.id === "admin-test-move",
+      )!;
+      return {
+        date: appointment.date,
+        time: appointment.time,
+        duration: appointment.duration,
+        price: appointment.price,
+      };
+    }),
+  ).toEqual({ date: nextFuture, time: "11:45", duration: 45, price: 7 });
+  await editedAppointment
+    .getByRole("button", { name: "Editar cita", exact: true })
+    .click();
+  dialog = page.getByRole("dialog", { name: "Editar cita" });
+  await expect(dialog.getByLabel("Nueva fecha")).toHaveValue(nextFuture);
+  await expect(dialog.getByLabel("Hora disponible")).toHaveValue("11:45");
+  await dialog
+    .getByLabel("Notas de la cita (opcional)")
+    .fill("Solo ha cambiado la nota; mantenemos la cita.");
+  await dialog.getByRole("button", { name: "Guardar cambios" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(
     page.locator(".admin-appointment").filter({ hasText: "11:45" }),
-  ).toContainText("Alex");
+  ).toContainText("Solo ha cambiado la nota; mantenemos la cita.");
   await page.getByRole("button", { name: "Cancelar cita de Dani" }).click();
   await page
     .getByRole("dialog")

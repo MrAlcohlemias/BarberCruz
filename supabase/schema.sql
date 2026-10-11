@@ -122,6 +122,27 @@ select id,
   left(coalesce(raw_user_meta_data ->> 'avatar_url', raw_user_meta_data ->> 'picture', ''), 2048)
 from auth.users on conflict (id) do nothing;
 
+-- Keep durable Storage references in the owning profile. Signed download URLs
+-- expire and must be resolved by the client, rather than saved in this column.
+-- Google HTTPS photos and the existing emoji avatars remain compatible.
+create or replace function public.validate_profile_avatar()
+returns trigger language plpgsql set search_path = ''
+as $$
+begin
+  if new.avatar like 'avatars/%' and new.avatar !~ (
+    '^avatars/' || new.id::text ||
+    '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|webp)$'
+  ) then
+    raise exception 'La foto de perfil debe pertenecer a esta cuenta.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists barber_cruz_validate_profile_avatar on public.profiles;
+create trigger barber_cruz_validate_profile_avatar before insert or update of avatar on public.profiles
+  for each row execute function public.validate_profile_avatar();
+
 create or replace function public.validate_settings()
 returns trigger language plpgsql set search_path = ''
 as $$
@@ -436,9 +457,46 @@ grant update(payload) on public.settings to authenticated;
 grant insert, update, delete on public.blocks to authenticated;
 grant update(service_id, date, time, status, redemption, note) on public.appointments to authenticated;
 
+-- Supabase owns the Storage schema. A private bucket needs a signed URL for
+-- downloads: clients may read their own files, and the admin may read all photos.
+-- Use unique filenames and upsert:false; uploads cannot overwrite another file.
+-- Plain PostgreSQL test installations without Storage keep the booking schema.
+do $$
+begin
+  if to_regclass('storage.buckets') is not null and to_regclass('storage.objects') is not null then
+    insert into storage.buckets(id, name, public, file_size_limit, allowed_mime_types)
+    values ('avatars', 'avatars', false, 2097152, array['image/jpeg', 'image/png', 'image/webp'])
+    on conflict (id) do update set
+      public = false,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+    drop policy if exists barber_cruz_avatars_read on storage.objects;
+    create policy barber_cruz_avatars_read on storage.objects for select to authenticated
+      using (bucket_id = 'avatars' and (split_part(name, '/', 1) = auth.uid()::text or public.is_admin()));
+
+    drop policy if exists barber_cruz_avatars_insert on storage.objects;
+    create policy barber_cruz_avatars_insert on storage.objects for insert to authenticated
+      with check (
+        bucket_id = 'avatars' and name ~ (
+          '^' || auth.uid()::text ||
+          '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|webp)$'
+        )
+      );
+
+    drop policy if exists barber_cruz_avatars_delete on storage.objects;
+    create policy barber_cruz_avatars_delete on storage.objects for delete to authenticated
+      using (bucket_id = 'avatars' and split_part(name, '/', 1) = auth.uid()::text);
+  else
+    raise notice 'Supabase Storage is absent: avatar bucket setup skipped in this PostgreSQL installation.';
+  end if;
+end;
+$$;
+
 -- PostgreSQL gives PUBLIC function execution by default: revoke it explicitly.
 revoke all on function public.is_admin() from public;
 revoke all on function public.handle_new_user() from public, anon, authenticated;
+revoke all on function public.validate_profile_avatar() from public, anon, authenticated;
 revoke all on function public.validate_settings() from public, anon, authenticated;
 revoke all on function public.validate_appointment() from public, anon, authenticated;
 revoke all on function public.validate_block() from public, anon, authenticated;

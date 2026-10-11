@@ -89,6 +89,87 @@ test("permite personalizar y conservar perfil y avatar", async ({ page }) => {
     "true",
   );
 });
+test("la foto de galería se prepara, se guarda al confirmar y se conserva al recargar", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const openProfile = async () => {
+    await page.getByRole("button", { name: "Menú de mi cuenta" }).click();
+    await page
+      .locator(".account-dropdown")
+      .getByRole("button", { name: "Mi perfil", exact: true })
+      .click();
+  };
+  await openProfile();
+  const originalAvatar = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("barbercruz.demo.v1")!).profiles[0]
+        .avatar,
+  );
+  const photo = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 900;
+    canvas.height = 600;
+    const context = canvas.getContext("2d")!;
+    context.fillStyle = "#324858";
+    context.fillRect(0, 0, 900, 600);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  const upload = {
+    name: "mi-foto.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(photo, "base64"),
+  };
+  await page.getByLabel("Elegir foto de perfil").setInputFiles(upload);
+  await expect(page.locator(".profile-avatar-row img")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Guardar mi perfil" }),
+  ).toBeEnabled();
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("barbercruz.demo.v1")!).profiles[0]
+          .avatar,
+    ),
+  ).toBe(originalAvatar);
+  await page.getByRole("button", { name: "Cerrar ventana" }).click();
+  await openProfile();
+  await expect(page.locator(".profile-avatar-row img")).toHaveCount(0);
+  await page.getByLabel("Elegir foto de perfil").setInputFiles(upload);
+  await expect(page.locator(".profile-avatar-row img")).toBeVisible();
+  await page.getByRole("button", { name: "Guardar mi perfil" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.reload();
+  await openProfile();
+  const image = page.locator(".profile-avatar-row img");
+  await expect(image).toBeVisible();
+  await expect(image).toHaveAttribute("src", /^data:image\/jpeg;base64,/);
+  await expect
+    .poll(() =>
+      image.evaluate((img: HTMLImageElement) => [
+        img.naturalWidth,
+        img.naturalHeight,
+      ]),
+    )
+    .toEqual([512, 341]);
+  await page.getByLabel("Elegir foto de perfil").setInputFiles({
+    name: "imagen.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>'),
+  });
+  await expect(page.getByRole("alert")).toContainText("Elige una foto JPG");
+  await expect(image).toHaveAttribute("src", /^data:image\/jpeg;base64,/);
+  await page.getByRole("button", { name: "Avatar ⚡" }).click();
+  await expect(image).toHaveCount(0);
+  await page.getByRole("button", { name: "Guardar mi perfil" }).click();
+  await page.reload();
+  await openProfile();
+  await expect(page.getByRole("button", { name: "Avatar ⚡" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
 test("el premio tras 7 cortes se reserva, no se duplica y se recupera al cancelar", async ({
   page,
 }) => {

@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CalendarDays,
+  Camera,
   Check,
   CheckCheck,
   ChevronDown,
@@ -27,6 +28,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useApp } from "./lib/AppContext";
+import { avatarSource, preparePhoto } from "./lib/avatar";
 import {
   addDays,
   formatDate,
@@ -58,16 +60,18 @@ function Avatar({
   small?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
+  const source = avatarSource(profile);
+  useEffect(() => setFailed(false), [source, profile.avatar]);
   return (
     <span className={`avatar ${small ? "avatar-small" : ""}`}>
-      {profile.avatar.startsWith("https://") && !failed ? (
+      {source && !failed ? (
         <img
-          src={profile.avatar}
+          src={source}
           alt=""
           referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
         />
-      ) : profile.avatar && !failed && !profile.avatar.startsWith("http") ? (
+      ) : profile.avatar && !failed && profile.avatar.length <= 20 ? (
         profile.avatar
       ) : (
         profile.name.slice(0, 1).toUpperCase()
@@ -132,8 +136,8 @@ function LoginOptions({ onSuccess }: { onSuccess: () => void }) {
       {isDemo ? (
         <>
           <p className="demo-explanation">
-            Esta es una demo local. Google se activará al conectar la web; las
-            citas de prueba solo se guardan en este navegador.
+            Google todavía no está configurado. Mientras tanto puedes probar la
+            demo; sus citas solo se guardan en este navegador.
           </p>
           <button
             type="button"
@@ -693,6 +697,40 @@ function ProfileEditor({
   const [newPassword, setNewPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  const [photo, setPhoto] = useState<Blob | undefined>();
+  const [photoPreview, setPhotoPreview] = useState<string>();
+  const [preparingPhoto, setPreparingPhoto] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const photoVersion = useRef(0);
+  useEffect(() => {
+    if (!photo) {
+      setPhotoPreview(undefined);
+      return;
+    }
+    const url = URL.createObjectURL(photo);
+    setPhotoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photo]);
+  useEffect(
+    () => () => {
+      photoVersion.current += 1;
+    },
+    [],
+  );
+  async function choosePhoto(file?: File) {
+    if (!file) return;
+    const version = ++photoVersion.current;
+    setError("");
+    setPreparingPhoto(true);
+    try {
+      const prepared = await preparePhoto(file);
+      if (version === photoVersion.current) setPhoto(prepared);
+    } catch (err) {
+      if (version === photoVersion.current) setError(failMessage(err));
+    } finally {
+      if (version === photoVersion.current) setPreparingPhoto(false);
+    }
+  }
   async function updatePassword() {
     setError("");
     if (newPassword !== repeatPassword) {
@@ -716,7 +754,7 @@ function ProfileEditor({
     setBusy(true);
     setError("");
     try {
-      await saveProfile(draft);
+      await saveProfile(draft, photo);
       onToast("Perfil actualizado. Muy tú.");
       onClose();
     } catch (err) {
@@ -731,18 +769,53 @@ function ProfileEditor({
       <h2>Este eres tú.</h2>
       <form onSubmit={(e) => void submit(e)} className="profile-form">
         <div className="profile-avatar-row">
-          <Avatar profile={draft} />
+          <Avatar
+            profile={
+              photoPreview ? { ...draft, avatarUrl: photoPreview } : draft
+            }
+          />
           <div>
-            <strong>Elige tu avatar</strong>
+            <strong>Tu foto de perfil</strong>
+            <input
+              ref={fileInput}
+              type="file"
+              hidden
+              accept="image/jpeg,image/png,image/webp"
+              aria-label="Elegir foto de perfil"
+              onChange={(e) => {
+                void choosePhoto(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-ghost profile-photo-button"
+              disabled={busy || preparingPhoto}
+              onClick={() => fileInput.current?.click()}
+            >
+              <Camera size={17} />
+              {preparingPhoto ? "Preparando foto…" : "Elegir de la galería"}
+            </button>
+            <p className="profile-photo-help">
+              JPG, PNG o WebP · hasta 10 MB. Se guardará al guardar el perfil.
+            </p>
+            <strong className="avatar-options-label">O elige un avatar</strong>
             <div className="avatar-options">
               {["😎", "🔥", "⚡", "💈", "👑", "✂️"].map((a) => (
                 <button
                   type="button"
                   key={a}
                   aria-label={`Avatar ${a}`}
-                  aria-pressed={draft.avatar === a}
-                  className={draft.avatar === a ? "selected" : ""}
-                  onClick={() => setDraft({ ...draft, avatar: a })}
+                  aria-pressed={!photo && draft.avatar === a}
+                  className={!photo && draft.avatar === a ? "selected" : ""}
+                  disabled={busy}
+                  onClick={() => {
+                    photoVersion.current += 1;
+                    setError("");
+                    setPreparingPhoto(false);
+                    setPhoto(undefined);
+                    setDraft({ ...draft, avatar: a, avatarUrl: undefined });
+                  }}
                 >
                   {a}
                 </button>
@@ -803,7 +876,11 @@ function ProfileEditor({
             {error}
           </p>
         )}
-        <button type="submit" className="btn btn-lime full" disabled={busy}>
+        <button
+          type="submit"
+          className="btn btn-lime full"
+          disabled={busy || preparingPhoto}
+        >
           {busy ? "Guardando…" : "Guardar mi perfil"}
           <Check size={18} />
         </button>
@@ -2044,6 +2121,11 @@ export default function App() {
                   atenderte. Otros clientes no pueden consultar tu perfil ni los
                   datos de tus reservas. Google gestiona el inicio de sesión en
                   la versión conectada.
+                </p>
+                <p>
+                  La foto que elijas de la galería se guarda al confirmar tu
+                  perfil. En la versión conectada, solo tú y el barbero podéis
+                  verla; puedes sustituirla por otra foto o un avatar.
                 </p>
                 <p>
                   No incluyas datos sensibles en tu biografía ni en las notas de

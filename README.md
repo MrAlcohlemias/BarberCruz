@@ -1,6 +1,6 @@
 # Barber Cruz
 
-Web de reservas en español, diseñada para móvil e instalable como aplicación en la pantalla de inicio. Incluye una portada, perfiles personalizables, reservas, historial, Club Cruz y un panel para el barbero.
+Web de reservas en español con tema oscuro en negro y gris, diseñada para móvil e instalable como aplicación en la pantalla de inicio. Incluye una portada, perfiles con foto de la galería o avatar, reservas, historial, Club Cruz y un panel para el barbero.
 
 El corte inicial cuesta **7 €** y dura **45 minutos**. Tras **7 cortes pagados completados**, el cliente puede reservar un corte gratis. Los horarios iniciales son un ejemplo editable: lunes a sábado de 10:00 a 20:00, domingo cerrado.
 
@@ -52,10 +52,12 @@ La lógica SQL se comprobó también en PostgreSQL 17 con roles anónimo, client
 
 ## Uso del panel
 
-- **Agenda:** consulta citas por día o estado, reprograma, cancela y marca como realizados los cortes que ya han terminado. Un corte normal completado añade un sello; no se procesan pagos en la web.
+- **Agenda → Editar cita:** cambia la fecha, hora o notas de una cita pendiente cuando el cliente pida otro hueco. La edición conserva precio y duración y comprueba los horarios ocupados. También puedes cancelar y marcar como realizados los cortes que ya han terminado. Un corte normal completado añade un sello; no se procesan pagos en la web.
 - **Servicios:** modifica nombre, descripción, precio y duración. Las citas conservan su duración y precio originales.
 - **Horarios:** configura cada día o aplica turnos de mañana/tarde, define antelación y bloquea intervalos concretos. Cambiar el horario no cancela las citas ya confirmadas.
 - **Club Cruz:** siete cortes pagados dan derecho al siguiente gratis. Al reservar un regalo queda apartado; si cancelas, se recupera. Los cortes gratuitos no suman sellos.
+
+En **Mi perfil → Elegir de la galería**, puedes seleccionar una foto JPG, PNG o WebP de hasta 10 MB y ver una vista previa. Se reduce a un máximo de 512 píxeles por lado, se convierte a JPEG sin los metadatos originales y solo se guarda al confirmar el perfil. En la versión conectada, Supabase Storage guarda las fotos en un bucket privado: pueden verlas su propietario y el barbero. En la demo solo se conservan en ese navegador.
 
 La fotografía de portada es una imagen de ambiente generada para el diseño; no representa a tu amigo ni su habitación. Puede sustituirse por una fotografía real en `public/barber-hero.png`. El enlace de Instagram corresponde a **@_barbercruz_**.
 
