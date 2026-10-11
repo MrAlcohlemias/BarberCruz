@@ -42,6 +42,8 @@ Si publicaste en Vercel, abre tu proyecto → **Settings → Environment Variabl
 
 El botón de Google se activa cuando la web tiene ambas variables. El inicio de sesión real necesita además el proveedor Google y las redirecciones del paso 2. Hacerlo en Supabase no modifica automáticamente la web ya publicada en Vercel.
 
+Cada pulsación de **Continuar con Google** solicita el selector de cuentas con `prompt=select_account`, también en la app instalada. **Cerrar sesión** elimina la sesión de Barber Cruz de este navegador y retira el perfil y las citas de la pantalla. Google mantiene su propia sesión en su dominio; puedes elegir otra cuenta o pulsar **Usar otra cuenta** en su selector.
+
 ## 4. Crear el administrador con correo y contraseña
 
 El botón de administración de prueba solo existe en desarrollo local. **La web compilada y publicada no permite entrar como administrador de demo**, ni restaura una sesión local de admin de versiones anteriores. No hay contraseña predeterminada ni una contraseña dentro del código.

@@ -262,6 +262,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
   const refreshVersionRef = useRef(0);
   const deletingAccountRef = useRef(false);
+  const clearAuthenticatedState = useCallback(() => {
+    refreshVersionRef.current += 1;
+    const publicData = {
+      ...dataRef.current,
+      profiles: [],
+      appointments: [],
+      blocks: [],
+    };
+    dataRef.current = publicData;
+    profileRef.current = null;
+    setData(publicData);
+    setProfile(null);
+    setError("");
+    setLoading(false);
+  }, []);
   const refresh = useCallback(async () => {
     if (deletingAccountRef.current) return;
     const refreshVersion = ++refreshVersionRef.current;
@@ -351,15 +366,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProfile(current);
       setError("");
     } catch (err) {
-      setError(`No podemos conectar con Barber Cruz: ${message(err)}`);
+      if (
+        refreshVersion === refreshVersionRef.current &&
+        !deletingAccountRef.current
+      )
+        setError(`No podemos conectar con Barber Cruz: ${message(err)}`);
     } finally {
-      setLoading(false);
+      if (
+        refreshVersion === refreshVersionRef.current &&
+        !deletingAccountRef.current
+      )
+        setLoading(false);
     }
   }, []);
   useEffect(() => {
     void refresh();
     if (!db) return;
-    const { data: subscription } = db.auth.onAuthStateChange(() => {
+    const { data: subscription } = db.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") clearAuthenticatedState();
       window.setTimeout(() => {
         void refresh();
       }, 0);
@@ -390,7 +414,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("online", onOnline);
       window.clearInterval(photoRefresh);
     };
-  }, [refresh]);
+  }, [refresh, clearAuthenticatedState]);
   useEffect(() => {
     if (db) return;
     const changed = (event: StorageEvent) => {
@@ -467,7 +491,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
     const result = await db.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: { prompt: "select_account" },
+      },
     });
     if (result.error) throw result.error;
   }
@@ -536,13 +563,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   async function signOut() {
     if (db) {
-      const result = await db.auth.signOut();
+      const result = await db.auth.signOut({ scope: "local" });
       if (result.error) throw result.error;
-      setData(createDemoData());
-      await refresh();
-    } else localStorage.removeItem(SESSION_KEY);
-    profileRef.current = null;
-    setProfile(null);
+      clearAuthenticatedState();
+      void refresh();
+    } else {
+      localStorage.removeItem(SESSION_KEY);
+      profileRef.current = null;
+      setProfile(null);
+    }
   }
   async function saveProfile(next: Profile, photo?: Blob) {
     const current = requireProfile();
