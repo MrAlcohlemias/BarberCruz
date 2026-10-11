@@ -48,17 +48,22 @@ npm run build
 
 Las pruebas unitarias comprueban horarios, zona horaria, duración, solapes, cancelaciones y fidelidad. Las pruebas de navegador ejecutan reservas, persistencia, edición de perfil, administración, canjes y reservas simultáneas en dos pestañas de la demo. Usan Chromium instalado en este entorno; en otra máquina, puedes instalarlo con `npx playwright install chromium` o indicar su ruta mediante `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`. Estas pruebas requieren la demo local; no las ejecutes contra una web de clientes.
 
+La demo valida y guarda los cambios en una transacción de IndexedDB, con una copia en localStorage para sincronizar las pestañas. Esto evita que dos reservas simultáneas confirmen el mismo hueco. Restablecer la demo borra ambos almacenes y la sesión local.
+
 La lógica SQL se comprobó también en PostgreSQL 17 con roles anónimo, cliente y administrador, incluidas reservas simultáneas. La comprobación real con Google sigue pendiente de conectar el proyecto.
 
 ## Uso del panel
 
 - **Agenda → Editar cita:** cambia la fecha, hora o notas de una cita pendiente cuando el cliente pida otro hueco. La edición conserva precio y duración y comprueba los horarios ocupados. También puedes cancelar y marcar como realizados los cortes que ya han terminado. Un corte normal completado añade un sello; no se procesan pagos en la web.
+- **Clientes:** busca por nombre o correo, consulta sus citas y fidelidad, cambia nombre, estilo, biografía y avatar, o elimina la cuenta con confirmación. El correo pertenece a la cuenta de acceso y los permisos no se cambian desde este panel.
 - **Servicios:** modifica nombre, descripción, precio y duración. Las citas conservan su duración y precio originales.
 - **Horarios:** configura cada día o aplica turnos de mañana/tarde, define antelación y bloquea intervalos concretos. Cambiar el horario no cancela las citas ya confirmadas.
 - **Club Cruz:** siete cortes pagados dan derecho al siguiente gratis. Al reservar un regalo queda apartado; si cancelas, se recupera. Los cortes gratuitos no suman sellos.
 
 En **Mi perfil → Elegir de la galería**, puedes seleccionar una foto JPG, PNG o WebP de hasta 10 MB y ver una vista previa. Se reduce a un máximo de 512 píxeles por lado, se convierte a JPEG sin los metadatos originales y solo se guarda al confirmar el perfil. En la versión conectada, Supabase Storage guarda las fotos en un bucket privado: pueden verlas su propietario y el barbero. En la demo solo se conservan en ese navegador.
 
+En **Mi perfil → Eliminar mi cuenta**, un cliente puede borrar su cuenta de Barber Cruz escribiendo `ELIMINAR`. Se eliminan su identidad de acceso en este proyecto, las fotos subidas, todas sus citas y los puntos. Su cuenta de Google permanece. El administrador puede eliminar cuentas de clientes desde **Clientes**; las cuentas administrativas están protegidas frente a este borrado. Para activar la eliminación real, vuelve a ejecutar el esquema actualizado y despliega la Edge Function `delete-account` siguiendo [la guía de Supabase](supabase/README.md). Su clave privilegiada solo se usa dentro de Supabase, nunca en la web. En la demo se borran únicamente los datos locales del cliente.
+
 La fotografía de portada es una imagen de ambiente generada para el diseño; no representa a tu amigo ni su habitación. Puede sustituirse por una fotografía real en `public/barber-hero.png`. El enlace de Instagram corresponde a **@_barbercruz_**.
 
-La página de privacidad explica el uso básico de los datos y remite a Instagram para solicitar su eliminación. Antes de compartir la web, completa la información del responsable y su canal de contacto con los datos reales del barbero.
+La página de privacidad explica el uso básico de los datos y la eliminación de la cuenta. Antes de compartir la web, completa la información del responsable y su canal de contacto con los datos reales del barbero.

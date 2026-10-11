@@ -9,8 +9,13 @@ create table if not exists public.profiles (
   avatar text not null default '' check (char_length(avatar) <= 2048),
   bio text not null default '' check (char_length(bio) <= 500),
   preferred_style text not null default '' check (char_length(preferred_style) <= 150),
-  role text not null default 'customer' check (role in ('customer', 'admin'))
+  role text not null default 'customer' check (role in ('customer', 'admin')),
+  deletion_pending boolean not null default false
 );
+
+-- Server-only deletion guard. Old installations gain the column without losing
+-- profiles; browser clients never receive permission to change it.
+alter table public.profiles add column if not exists deletion_pending boolean not null default false;
 
 create table if not exists public.services (
   id text primary key,
@@ -142,6 +147,64 @@ $$;
 drop trigger if exists barber_cruz_validate_profile_avatar on public.profiles;
 create trigger barber_cruz_validate_profile_avatar before insert or update of avatar on public.profiles
   for each row execute function public.validate_profile_avatar();
+
+create or replace function public.validate_profile_deletion()
+returns trigger language plpgsql set search_path = ''
+as $$
+begin
+  if new.deletion_pending and new.role <> 'customer' then
+    raise exception 'Las cuentas de administrador no se pueden eliminar desde la web.';
+  end if;
+  if tg_op = 'UPDATE' and old.deletion_pending and new.role is distinct from old.role then
+    raise exception 'Termina o cancela la eliminación antes de cambiar el rol.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists barber_cruz_validate_profile_deletion on public.profiles;
+create trigger barber_cruz_validate_profile_deletion before insert or update of role, deletion_pending on public.profiles
+  for each row execute function public.validate_profile_deletion();
+
+-- Only the Edge Function's server client may call these functions. Lock both
+-- live profiles in UUID order, then validate roles again inside the transaction.
+-- This prevents a role change between authorization and avatar cleanup.
+create or replace function public.prepare_account_deletion(p_actor_id uuid, p_target_id uuid)
+returns void language plpgsql security definer set search_path = ''
+as $$
+declare actor public.profiles; target public.profiles;
+begin
+  perform id from public.profiles where id in (p_actor_id, p_target_id) order by id for update;
+  select * into actor from public.profiles where id = p_actor_id;
+  select * into target from public.profiles where id = p_target_id;
+  if actor.id is null or target.id is null or target.role <> 'customer'
+    or (actor.role <> 'admin' and actor.id <> target.id) then
+    raise exception 'No tienes permiso para eliminar esta cuenta.';
+  end if;
+  if target.deletion_pending then
+    raise exception 'La eliminación de esta cuenta ya está en curso.';
+  end if;
+  update public.profiles set deletion_pending = true where id = p_target_id;
+end;
+$$;
+
+create or replace function public.release_account_deletion(p_target_id uuid)
+returns void language sql security definer set search_path = ''
+as $$
+  update public.profiles set deletion_pending = false where id = p_target_id and role = 'customer';
+$$;
+
+-- Hold a shared row lock while Storage creates its metadata, so a pending
+-- upload finishes before deletion starts and no new upload starts afterwards.
+create or replace function public.can_store_avatar()
+returns boolean language plpgsql security definer set search_path = ''
+as $$
+declare pending boolean;
+begin
+  select deletion_pending into pending from public.profiles where id = auth.uid() for share;
+  return pending is not null and not pending;
+end;
+$$;
 
 create or replace function public.validate_settings()
 returns trigger language plpgsql set search_path = ''
@@ -385,6 +448,8 @@ declare
   result public.appointments;
 begin
   if auth.uid() is null then raise exception 'Inicia sesión con Google para reservar.'; end if;
+  perform id from public.profiles where id = auth.uid() and not deletion_pending for share;
+  if not found then raise exception 'La eliminación de tu cuenta está en curso.'; end if;
   if p_time is null or p_time !~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' then
     raise exception 'La hora debe tener formato HH:MM.';
   end if;
@@ -419,8 +484,10 @@ drop policy if exists profiles_read on public.profiles;
 create policy profiles_read on public.profiles for select to authenticated
   using (id = auth.uid() or public.is_admin());
 drop policy if exists profiles_edit_self on public.profiles;
-create policy profiles_edit_self on public.profiles for update to authenticated
-  using (id = auth.uid()) with check (id = auth.uid());
+drop policy if exists profiles_edit on public.profiles;
+create policy profiles_edit on public.profiles for update to authenticated
+  using (not deletion_pending and (id = auth.uid() or (role = 'customer' and public.is_admin())))
+  with check (not deletion_pending and (id = auth.uid() or (role = 'customer' and public.is_admin())));
 drop policy if exists services_read on public.services;
 create policy services_read on public.services for select to anon, authenticated using (true);
 drop policy if exists services_admin_update on public.services;
@@ -478,7 +545,7 @@ begin
     drop policy if exists barber_cruz_avatars_insert on storage.objects;
     create policy barber_cruz_avatars_insert on storage.objects for insert to authenticated
       with check (
-        bucket_id = 'avatars' and name ~ (
+        bucket_id = 'avatars' and public.can_store_avatar() and name ~ (
           '^' || auth.uid()::text ||
           '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|jpeg|png|webp)$'
         )
@@ -486,7 +553,14 @@ begin
 
     drop policy if exists barber_cruz_avatars_delete on storage.objects;
     create policy barber_cruz_avatars_delete on storage.objects for delete to authenticated
-      using (bucket_id = 'avatars' and split_part(name, '/', 1) = auth.uid()::text);
+      using (bucket_id = 'avatars' and (
+        split_part(name, '/', 1) = auth.uid()::text or (
+          public.is_admin() and exists (
+            select 1 from public.profiles p
+            where p.id::text = split_part(storage.objects.name, '/', 1) and p.role = 'customer'
+          )
+        )
+      ));
   else
     raise notice 'Supabase Storage is absent: avatar bucket setup skipped in this PostgreSQL installation.';
   end if;
@@ -497,14 +571,28 @@ $$;
 revoke all on function public.is_admin() from public;
 revoke all on function public.handle_new_user() from public, anon, authenticated;
 revoke all on function public.validate_profile_avatar() from public, anon, authenticated;
+revoke all on function public.validate_profile_deletion() from public, anon, authenticated;
+revoke all on function public.prepare_account_deletion(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.release_account_deletion(uuid) from public, anon, authenticated;
+revoke all on function public.can_store_avatar() from public, anon, authenticated;
 revoke all on function public.validate_settings() from public, anon, authenticated;
 revoke all on function public.validate_appointment() from public, anon, authenticated;
 revoke all on function public.validate_block() from public, anon, authenticated;
 revoke all on function public.book_appointment(text, date, text, boolean, text) from public, anon, authenticated;
 revoke all on function public.booked_intervals(date) from public, anon, authenticated;
 grant execute on function public.is_admin() to anon, authenticated;
+grant execute on function public.can_store_avatar() to authenticated;
 grant execute on function public.book_appointment(text, date, text, boolean, text) to authenticated;
 grant execute on function public.booked_intervals(date) to anon, authenticated;
+
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'service_role') then
+    grant execute on function public.prepare_account_deletion(uuid, uuid) to service_role;
+    grant execute on function public.release_account_deletion(uuid) to service_role;
+  end if;
+end;
+$$;
 
 -- Supabase provides this publication. Leave plain PostgreSQL installations alone.
 do $$

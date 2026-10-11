@@ -11,6 +11,7 @@ import {
   Scissors,
   Settings2,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import type {
@@ -30,6 +31,7 @@ import {
   today,
 } from "../lib/domain";
 import { avatarSource } from "../lib/avatar";
+import ClientsPanel from "./ClientsPanel";
 import "./admin.css";
 
 export interface AdminPanelProps {
@@ -45,9 +47,11 @@ export interface AdminPanelProps {
     note?: string,
   ) => Promise<void>;
   onToast: (message: string) => void;
+  onUpdateCustomer: (next: Profile) => Promise<void>;
+  onDeleteCustomer: (id: string) => Promise<void>;
 }
 
-type Tab = "agenda" | "services" | "hours";
+type Tab = "agenda" | "clients" | "services" | "hours";
 const statusNames: Record<AppointmentStatus, string> = {
   confirmed: "Confirmada",
   completed: "Completada",
@@ -135,6 +139,8 @@ export default function AdminPanel({
   onUpdateBlocks,
   onReschedule,
   onToast,
+  onUpdateCustomer,
+  onDeleteCustomer,
 }: AdminPanelProps) {
   const currentDate = today(data.settings.timezone);
   const [tab, setTab] = useState<Tab>("agenda");
@@ -425,6 +431,7 @@ export default function AdminPanel({
         {(
           [
             { id: "agenda", name: "Agenda", icon: CalendarDays },
+            { id: "clients", name: "Clientes", icon: Users },
             { id: "services", name: "Servicios", icon: Scissors },
             { id: "hours", name: "Horarios", icon: Clock3 },
           ] as const
@@ -457,6 +464,21 @@ export default function AdminPanel({
           >
             <X size={16} />
           </button>
+        </div>
+      )}
+
+      {tab === "clients" && (
+        <div
+          id="admin-clients"
+          role="tabpanel"
+          aria-labelledby="admin-tab-clients"
+        >
+          <ClientsPanel
+            data={data}
+            onUpdateCustomer={onUpdateCustomer}
+            onDeleteCustomer={onDeleteCustomer}
+            onToast={onToast}
+          />
         </div>
       )}
 

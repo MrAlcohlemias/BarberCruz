@@ -53,7 +53,8 @@ El botón de administración de prueba solo existe en desarrollo local. **La web
 ```sql
 update public.profiles
 set role = 'admin'
-where lower(email) = lower('correo-real-de-tu-amigo@example.com');
+where lower(email) = lower('correo-real-de-tu-amigo@example.com')
+returning id, email, role;
 ```
 
 Comprueba que se actualiza una sola fila y que corresponde a tu amigo. Después, en Barber Cruz: **Entrar → Acceso de administrador**, introduce ese correo y contraseña. Una cuenta con rol `customer` será rechazada por este acceso. Las políticas SQL también comprueban el rol al gestionar citas, precios y horarios; no basta con cambiar un dato en el navegador.
@@ -66,13 +67,60 @@ Si prefieres Google para el administrador, configura el proveedor descrito arrib
 
 Desde **Mi perfil → Elegir de la galería** se puede seleccionar una imagen del móvil; pulsa **Guardar mi perfil** para guardar el cambio. La aplicación conserva las proporciones y la reduce a JPEG con un lado máximo de 512 píxeles antes de subirla. En producción se guarda en **Storage → avatars**, un bucket privado con un límite de 2 MiB por archivo y tipos JPEG, PNG o WebP. Las imágenes HEIC deben convertirse a uno de esos formatos si el navegador no las puede abrir.
 
-El nombre de cada archivo tiene la forma `<id-del-usuario>/<uuid>.jpg`. Solo su propietario puede subir o borrar imágenes de su carpeta; puede verlas su propietario y el administrador. Otros clientes y visitantes no pueden leerlas. No hagas público el bucket ni añadas políticas generales que permitan leer o subir todas las fotos.
+El nombre de cada archivo tiene la forma `<id-del-usuario>/<uuid>.jpg`. Solo su propietario puede subir imágenes de su carpeta; puede verlas su propietario y el administrador. El propietario puede borrarlas, y el administrador puede retirar las fotos de una cuenta cliente al editar su perfil. Otros clientes y visitantes no pueden leerlas. No hagas público el bucket ni añadas políticas generales que permitan leer o subir todas las fotos.
 
 `profiles.avatar` conserva una referencia estable como `avatars/<id-del-usuario>/<uuid>.jpg`. La aplicación obtiene una URL firmada temporal al mostrarla; no guarda esa URL en el perfil. Las fotos de Google y los avatares de emoji siguen siendo compatibles. En la demo la foto solo se guarda en el navegador y no se sube a Supabase.
 
 Las reglas del esquema crean el bucket y sus políticas en Supabase. Cuando el esquema se ejecuta en PostgreSQL sin las tablas de Supabase Storage, ese apartado se omite con un aviso para permitir las pruebas locales de reservas.
 
-## 6. Reservas y puntos
+## 6. Gestionar clientes y eliminar cuentas
+
+En el panel de administración, abre **Clientes** para buscar clientes, editar su nombre, biografía, estilo y avatar o eliminar una cuenta cliente. El correo identifica la cuenta con la que inició sesión y no se modifica desde este formulario. Tampoco permite cambiar roles ni editar otras cuentas de administrador.
+
+Cada cliente tiene **Mi perfil → Eliminar mi cuenta**. La confirmación exige escribir `ELIMINAR`. El borrado retira su perfil, fotos subidas, todas sus citas y puntos, y la identidad de acceso de Barber Cruz. No elimina su cuenta de Google. Si después se registra otra vez con Google, empieza con un perfil nuevo y sin puntos. Las cuentas de administrador no se pueden eliminar desde la web, para conservar el acceso a la gestión de la barbería.
+
+### Activar la gestión en tu proyecto existente
+
+1. En Supabase abre **SQL Editor → New query** y vuelve a ejecutar el contenido completo de [schema.sql](schema.sql). Añade los permisos para editar clientes y las protecciones del borrado, conservando tus perfiles y reservas existentes.
+2. Abre [dashboard.ts](functions/delete-account/dashboard.ts) en GitHub y pulsa **Raw**. Copia todo el archivo: es una versión completa de la función preparada para pegar en el editor, sin tener que combinar archivos.
+3. Vuelve a Supabase → **Edge Functions**. Pulsa **Deploy a new function / Create function → Via Editor**. Según la versión del panel, esta opción puede llamarse **Open Editor**.
+4. Como nombre de la función escribe exactamente **`delete-account`**, con guion y todo en minúsculas.
+5. Abre el archivo **`index.ts`** del editor, selecciona su contenido de ejemplo y sustitúyelo por todo el contenido de `dashboard.ts`. No añadas comillas ni las marcas de un bloque de código.
+6. Pulsa **Deploy function / Deploy** y espera a que el despliegue finalice.
+7. Abre los detalles o la configuración de la función **delete-account**. Desactiva **Verify JWT / Enforce JWT verification** del gateway y guarda. Esto permite las claves públicas nuevas de Supabase: la función sigue exigiendo una sesión válida y la comprueba directamente con **Supabase Auth `getUser()`** en cada petición. Una petición sin sesión válida recibe `401` y no puede borrar cuentas.
+8. No necesitas añadir secretos a mano: Supabase proporciona `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` dentro de sus Edge Functions. No copies esa clave privada a Vercel, variables `VITE_`, GitHub ni el chat.
+9. Comprueba que Vercel haya publicado la versión más reciente de la web. Si el despliegue automático de GitHub no se inició, abre **Deployments → despliegue de producción más reciente → Redeploy**.
+10. Prueba el borrado con una **cuenta cliente creada para pruebas**, después de comprobar que su perfil y una cita aparecen en Supabase. Confirma desde **Mi perfil**, y comprueba que desaparezca de **Authentication → Users**, `profiles` y `appointments`, y que su carpeta ya no tenga fotos en **Storage → avatars**. Si quieres probar el borrado desde administración, usa otra cuenta cliente de prueba.
+
+La función es necesaria para borrar la cuenta real de Authentication y retirar los archivos de Storage. El frontend no recibe permisos para borrar usuarios de Supabase. Si solo actualizas Vercel o el SQL y no despliegas la función, el borrado mostrará un error y conservará la cuenta.
+
+### Alternativa con la CLI de Supabase
+
+Si ya utilizas la CLI, desde la raíz del repositorio:
+
+```sh
+supabase login
+supabase link --project-ref TU_REFERENCIA_DE_PROYECTO
+supabase functions deploy delete-account --no-verify-jwt
+```
+
+La referencia de proyecto es el identificador de tu URL de Supabase, sin `https://` ni `.supabase.co`. El archivo [config.toml](config.toml) también fija `verify_jwt = false` para esta función. El punto de entrada de la CLI es `functions/delete-account/index.ts`; importa el mismo controlador comprobado por las pruebas. La copia para el editor se actualiza con `node scripts/build-account-deletion.mjs` cuando cambie ese código.
+
+### Cómo se protege el borrado y cómo resolver una interrupción
+
+La función comprueba la sesión mediante Auth y consulta los roles actuales en `profiles`. Un cliente solo puede borrar su propia cuenta; un administrador solo puede borrar cuentas cliente. No acepta roles enviados en el cuerpo ni en metadatos de Google. Antes de limpiar los archivos, una función SQL exclusiva del servidor bloquea los perfiles y vuelve a comprobar los permisos. Mientras `deletion_pending` está activo, no se permiten nuevas fotos, reservas o cambios de perfil. Una segunda solicitud concurrente se rechaza y no puede liberar la protección de la primera.
+
+La función lista todas las páginas de la carpeta de fotos y las retira mediante la API de Storage; después elimina de forma permanente la identidad de Supabase Auth. Las claves foráneas borran el perfil y todas sus citas, incluidas las históricas. Si Storage o Auth devuelve un error, no se informa de un borrado correcto y se libera la protección para poder reintentar. Algunas fotos ya retiradas podrían necesitar subirse de nuevo si el proceso falla antes de borrar la cuenta.
+
+Si el servicio se interrumpe de forma abrupta, el perfil podría quedar con `deletion_pending = true`. Comprueba en **Edge Functions → delete-account → Logs** que esa ejecución ya haya terminado y que la cuenta siga existiendo en Authentication. Solo entonces, como propietario del proyecto, puedes desbloquearla desde **SQL Editor**, sustituyendo el UUID por el de esa cuenta en `profiles.id`:
+
+```sql
+select public.release_account_deletion('UUID-REAL-DE-LA-CUENTA'::uuid);
+```
+
+Después vuelve a probar la eliminación desde la web. No desbloquees una cuenta mientras su eliminación siga ejecutándose.
+
+## 7. Reservas y puntos
 
 - Los clientes ven su perfil y sus propias citas. El administrador ve los perfiles y la agenda completa, cambia horarios/precios, bloquea horas, mueve citas pendientes y las completa o cancela.
 - Una reserva se confirma mediante `book_appointment`: la base de datos vuelve a comprobar horario, antelación, duración, bloqueos y solapamientos. Un bloqueo no se puede añadir encima de una cita activa; hay que moverla o cancelarla primero.
@@ -84,7 +132,7 @@ Las reglas del esquema crean el bucket y sus políticas en Supabase. Cuando el e
 
 Los pagos no se procesan en la web: «pagado» representa un corte normal completado por el administrador, frente a una cita gratis canjeada. El precio y los horarios definitivos debe validarlos el barbero antes de compartir el enlace.
 
-## 7. Comprobar antes de compartirla
+## 8. Comprobar antes de compartirla
 
 Conecta dos cuentas de Google distintas y comprueba una reserva real: la segunda cuenta debe ver el turno ocupado y no poder leer la cita ni el perfil de la primera. Comprueba también que un cliente no puede abrir el panel administrativo, que la cuenta de tu amigo sí puede gestionar esa cita y que cancelarla libera el turno.
 
@@ -96,16 +144,19 @@ El esquema se ha ejecutado y comprobado en PostgreSQL 17 con roles `anon` y `aut
 
 Las nuevas políticas de fotos se comprobaron en el mismo PostgreSQL 17 con tablas de Storage simuladas: subida, lectura y borrado propios; lectura del administrador; rechazo de lecturas y escrituras de otros clientes, acceso anónimo, nombres de archivo inválidos y referencias de perfil a fotos ajenas. Se comprobó también que volver a ejecutar el esquema no duplica las políticas. El límite y los tipos permitidos se guardan en el bucket; su aplicación por el servicio real de Storage debe comprobarse en Supabase.
 
+La gestión de clientes y el borrado se comprobaron en PostgreSQL 17: edición propia y del administrador sobre clientes, bloqueo de cambios de correo/rol/marcador desde la API, rechazo de la eliminación de administradores, RPC de preparación exclusivo del servidor, bloqueo de nuevas fotos/reservas mientras se borra y cascada de Authentication a perfil y citas de todos los estados. Una subida simultánea termina antes de que se active la protección; las posteriores y una segunda eliminación se rechazan. Las pruebas del controlador verifican autenticación, permisos, paginación y limpieza de Storage, borrado real mediante Auth y fallos parciales. Estas comprobaciones son locales: el despliegue de la Edge Function y un borrado real en tu proyecto deben validarse con una cuenta de prueba después de configurarlos.
+
 ## Contrato de la API
 
-| Recurso           | Campos relevantes                                                                                                | Acceso                                                                            |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `profiles`        | `id`, `name`, `email`, `avatar`, `bio`, `preferred_style`, `role`                                                | Propio perfil o administrador; cada usuario edita su nombre, avatar, bio y estilo |
-| Storage `avatars` | Archivo `<id-del-usuario>/<uuid>.jpg`, máx. 2 MiB                                                                | Lectura propia o administrador mediante URL firmada; subida y borrado propios     |
-| `services`        | `id`, `name`, `description`, `duration`, `price`, `icon`                                                         | Lectura pública; escritura del administrador                                      |
-| `settings`        | `id = 'singleton'`, `payload`                                                                                    | Lectura pública; el administrador edita `payload`                                 |
-| `blocks`          | `id`, `date`, `starts_at`, `ends_at`, `note`                                                                     | Solo administrador                                                                |
-| `appointments`    | `id`, `user_id`, `service_id`, `date`, `time`, `duration`, `price`, `status`, `redemption`, `note`, `created_at` | Citas propias o administrador; reserva por RPC                                    |
+| Recurso                        | Campos relevantes                                                                                                | Acceso                                                                                                                |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `profiles`                     | `id`, `name`, `email`, `avatar`, `bio`, `preferred_style`, `role`, `deletion_pending`                            | Lectura propia o administrador; edición propia o de clientes por administrador, sin cambios de correo, rol o marcador |
+| Storage `avatars`              | Archivo `<id-del-usuario>/<uuid>.jpg`, máx. 2 MiB                                                                | Lectura propia o administrador mediante URL firmada; subida propia; borrado propio o de clientes por administrador    |
+| Edge Function `delete-account` | POST `{ userId?: string, confirmation: 'ELIMINAR' }`                                                             | Sesión verificada; cliente elimina su cuenta, administrador elimina clientes; clave privada exclusiva del servidor    |
+| `services`                     | `id`, `name`, `description`, `duration`, `price`, `icon`                                                         | Lectura pública; escritura del administrador                                                                          |
+| `settings`                     | `id = 'singleton'`, `payload`                                                                                    | Lectura pública; el administrador edita `payload`                                                                     |
+| `blocks`                       | `id`, `date`, `starts_at`, `ends_at`, `note`                                                                     | Solo administrador                                                                                                    |
+| `appointments`                 | `id`, `user_id`, `service_id`, `date`, `time`, `duration`, `price`, `status`, `redemption`, `note`, `created_at` | Citas propias o administrador; reserva por RPC                                                                        |
 
 `settings.payload` tiene la forma camelCase `Settings` de `src/lib/types.ts`; los días van de `0` (domingo) a `6` (sábado). `appointments.duration` y `appointments.price` conservan la duración y el precio de la reserva, aunque cambie el catálogo o se mueva la cita. Un canje tiene precio `0`. Si el administrador cambia el servicio o el canje de una cita pendiente, se toma el precio actual correspondiente. Las fechas son `YYYY-MM-DD`, las horas de tabla `HH:mm:ss` y los estados `confirmed`, `completed` o `cancelled`.
 

@@ -1,0 +1,48 @@
+.delete-account-section {
+  margin-top: 30px;
+  padding-top: 26px;
+  border-top: 1px solid var(--border);
+}
+.delete-account-section h3 {
+  font-size: 17px;
+  margin-bottom: 9px;
+}
+.delete-account-section > p {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.delete-account-section .delete-account-demo {
+  font-size: 12px;
+}
+.delete-account-start,
+.delete-account-final {
+  border-color: var(--danger);
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+.delete-account-start:hover:not(:disabled),
+.delete-account-final:hover:not(:disabled) {
+  background: #48302d;
+}
+.delete-account-confirmation {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+}
+.delete-account-confirmation .field,
+.delete-account-confirmation .form-error {
+  margin: 0;
+}
+.delete-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.delete-account-actions .btn {
+  flex: 1 1 190px;
+  white-space: normal;
+  padding: 10px 14px;
+}

@@ -280,3 +280,134 @@ test("la portada y el formulario caben en móvil, tablet y escritorio", async ({
     await page.keyboard.press("Escape");
   }
 });
+test("cancelar la eliminación de cuenta conserva el perfil, las citas y la sesión", async ({
+  page,
+}) => {
+  await login(page);
+  const before = await page.evaluate(() => ({
+    data: localStorage.getItem("barbercruz.demo.v1"),
+    session: localStorage.getItem("barbercruz.demo.session"),
+  }));
+  await page.getByRole("button", { name: "Menú de mi cuenta" }).click();
+  await page.getByRole("button", { name: "Mi perfil", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Eliminar mi cuenta", exact: true })
+    .click();
+  const confirmation = page.getByRole("form", {
+    name: "Confirmar eliminación de mi cuenta",
+  });
+  const finalButton = confirmation.getByRole("button", {
+    name: "Eliminar definitivamente",
+  });
+  await expect(finalButton).toBeDisabled();
+  await confirmation
+    .getByLabel("Escribe ELIMINAR para confirmar")
+    .fill("eliminar");
+  await expect(finalButton).toBeDisabled();
+  await confirmation
+    .getByLabel("Escribe ELIMINAR para confirmar")
+    .fill("ELIMINAR");
+  await expect(finalButton).toBeEnabled();
+  await confirmation
+    .getByRole("button", { name: "Conservar mi cuenta" })
+    .click();
+  await expect(confirmation).toHaveCount(0);
+  expect(
+    await page.evaluate(() => ({
+      data: localStorage.getItem("barbercruz.demo.v1"),
+      session: localStorage.getItem("barbercruz.demo.session"),
+    })),
+  ).toEqual(before);
+  await page.getByRole("button", { name: "Cerrar ventana" }).click();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Menú de mi cuenta" }),
+  ).toBeVisible();
+});
+test("eliminar mi cuenta borra mis citas y puntos, cierra la sesión y conserva los demás clientes", async ({
+  page,
+}) => {
+  await login(page);
+  await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("barbercruz.demo.v1")!);
+    data.appointments.push({
+      ...data.appointments[0],
+      id: "other-customer-history",
+      userId: "demo-dani",
+      note: "Conservar el historial de Dani",
+    });
+    localStorage.setItem("barbercruz.demo.v1", JSON.stringify(data));
+  });
+  await page.reload();
+  const booking = await selectBooking(page);
+  await booking.getByRole("button", { name: "Confirmar mi cita" }).click();
+  await page.getByRole("button", { name: "Ver mis citas" }).click();
+  const before = await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("barbercruz.demo.v1")!);
+    return {
+      profiles: data.profiles.filter(
+        (profile: { id: string }) => profile.id !== "demo-customer",
+      ),
+      appointments: data.appointments.filter(
+        (appointment: { userId: string }) =>
+          appointment.userId !== "demo-customer",
+      ),
+      ownAppointments: data.appointments.filter(
+        (appointment: { userId: string }) =>
+          appointment.userId === "demo-customer",
+      ),
+    };
+  });
+  expect(before.ownAppointments.length).toBe(4);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Menú de mi cuenta" }).click();
+  await page
+    .locator(".account-dropdown")
+    .getByRole("button", { name: "Mi perfil", exact: true })
+    .click();
+  await expect(page.locator(".delete-account-section")).toContainText(
+    "Tu cuenta de Google no se eliminará",
+  );
+  await page
+    .getByRole("button", { name: "Eliminar mi cuenta", exact: true })
+    .click();
+  await page.getByLabel("Escribe ELIMINAR para confirmar").fill("ELIMINAR");
+  await page.getByRole("button", { name: "Eliminar definitivamente" }).click();
+  await expect(
+    page.getByText("Tu cuenta de Barber Cruz se ha eliminado.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Menú de mi cuenta" }),
+  ).toHaveCount(0);
+  const after = await page.evaluate(() => {
+    const data = JSON.parse(localStorage.getItem("barbercruz.demo.v1")!);
+    return {
+      profiles: data.profiles,
+      appointments: data.appointments,
+      session: localStorage.getItem("barbercruz.demo.session"),
+    };
+  });
+  expect(after.profiles).toEqual(before.profiles);
+  expect(after.appointments).toEqual(before.appointments);
+  expect(after.session).toBeNull();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Menú de mi cuenta" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Entrar", exact: true })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Probar como cliente" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "No se encontró el perfil",
+  );
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("barbercruz.demo.v1")!).profiles.some(
+        (profile: { id: string }) => profile.id === "demo-customer",
+      ),
+    ),
+  ).toBe(false);
+});

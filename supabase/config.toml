@@ -1,0 +1,5 @@
+# The handler verifies every Bearer token with Supabase Auth getUser(). Disabling
+# the legacy gateway JWT check supports projects using the new publishable keys;
+# it does not make account deletion anonymous.
+[functions.delete-account]
+verify_jwt = false

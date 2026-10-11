@@ -41,6 +41,7 @@ import {
 import type { Appointment, Profile } from "./lib/types";
 import Modal from "./components/Modal";
 import AdminPanel from "./components/AdminPanel";
+import DeleteAccountSection from "./components/DeleteAccountSection";
 
 type View = "home" | "appointments" | "club" | "admin";
 type InstallEvent = Event & {
@@ -697,6 +698,7 @@ function ProfileEditor({
   const [newPassword, setNewPassword] = useState("");
   const [repeatPassword, setRepeatPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [photo, setPhoto] = useState<Blob | undefined>();
   const [photoPreview, setPhotoPreview] = useState<string>();
   const [preparingPhoto, setPreparingPhoto] = useState(false);
@@ -764,7 +766,12 @@ function ProfileEditor({
     }
   }
   return (
-    <Modal title="Editar mi perfil" onClose={onClose}>
+    <Modal
+      title="Editar mi perfil"
+      onClose={() => {
+        if (!deletingAccount && !busy) onClose();
+      }}
+    >
       <p className="eyebrow">A TU MANERA</p>
       <h2>Este eres tú.</h2>
       <form onSubmit={(e) => void submit(e)} className="profile-form">
@@ -790,7 +797,7 @@ function ProfileEditor({
             <button
               type="button"
               className="btn btn-ghost profile-photo-button"
-              disabled={busy || preparingPhoto}
+              disabled={busy || preparingPhoto || deletingAccount}
               onClick={() => fileInput.current?.click()}
             >
               <Camera size={17} />
@@ -808,7 +815,7 @@ function ProfileEditor({
                   aria-label={`Avatar ${a}`}
                   aria-pressed={!photo && draft.avatar === a}
                   className={!photo && draft.avatar === a ? "selected" : ""}
-                  disabled={busy}
+                  disabled={busy || deletingAccount}
                   onClick={() => {
                     photoVersion.current += 1;
                     setError("");
@@ -879,12 +886,20 @@ function ProfileEditor({
         <button
           type="submit"
           className="btn btn-lime full"
-          disabled={busy || preparingPhoto}
+          disabled={busy || preparingPhoto || deletingAccount}
         >
           {busy ? "Guardando…" : "Guardar mi perfil"}
           <Check size={18} />
         </button>
       </form>
+      <DeleteAccountSection
+        disabled={busy || preparingPhoto || changingPassword}
+        onBusyChange={setDeletingAccount}
+        onDeleted={() => {
+          onToast("Tu cuenta de Barber Cruz se ha eliminado.");
+          onClose();
+        }}
+      />
       {profile?.role === "admin" && !isDemo && (
         <form
           className="password-settings"
@@ -1980,6 +1995,8 @@ export default function App() {
               onUpdateSettings={app.updateSettings}
               onUpdateBlocks={app.updateBlocks}
               onReschedule={app.reschedule}
+              onUpdateCustomer={app.updateCustomer}
+              onDeleteCustomer={app.deleteCustomer}
               onToast={notify}
             />
           </div>
@@ -2128,22 +2145,31 @@ export default function App() {
                   verla; puedes sustituirla por otra foto o un avatar.
                 </p>
                 <p>
+                  Puedes eliminar tu cuenta desde Mi perfil → Eliminar mi
+                  cuenta. Se borrarán tus fotos, tus citas y tus puntos de Club
+                  Cruz. Tu cuenta de Google se conserva. El barbero también
+                  puede editar o eliminar cuentas de clientes desde su panel.
+                </p>
+                <p>
                   No incluyas datos sensibles en tu biografía ni en las notas de
-                  las citas. Para solicitar la eliminación de tu cuenta y tus
-                  datos, contacta con @_barbercruz_.
+                  las citas. Para otras consultas sobre tus datos, contacta con
+                  @_barbercruz_.
                 </p>
                 {isDemo && (
                   <button
                     className="btn btn-ghost"
-                    onClick={() => {
+                    onClick={async () => {
                       if (
                         window.confirm(
                           "¿Borrar todos los datos de prueba guardados en este navegador?",
                         )
                       ) {
-                        localStorage.removeItem("barbercruz.demo.v1");
-                        localStorage.removeItem("barbercruz.demo.session");
-                        window.location.reload();
+                        try {
+                          await app.resetDemo();
+                          window.location.reload();
+                        } catch (e) {
+                          notify(failMessage(e));
+                        }
                       }
                     }}
                   >

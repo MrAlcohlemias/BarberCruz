@@ -10,6 +10,8 @@ import type { ReactNode } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { getDemoSessionProfile } from "./auth";
 import { avatarObjectPath, photoDataUrl } from "./avatar";
+import { editableCustomer, removeCustomer } from "./accounts";
+import { clearDemoStore, mutateDemoStore } from "./demoStore";
 import type {
   AppData,
   Appointment,
@@ -58,6 +60,10 @@ interface AppContextValue {
   signInDemo: (role: "customer" | "admin") => Promise<void>;
   signOut: () => Promise<void>;
   saveProfile: (profile: Profile, photo?: Blob) => Promise<void>;
+  updateCustomer: (profile: Profile) => Promise<void>;
+  deleteCustomer: (id: string) => Promise<void>;
+  deleteMyAccount: () => Promise<void>;
+  resetDemo: () => Promise<void>;
   bookAppointment: (input: BookingInput) => Promise<Appointment>;
   updateAppointment: (id: string, status: AppointmentStatus) => Promise<void>;
   reschedule: (
@@ -254,7 +260,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   profileRef.current = profile;
   const [loading, setLoading] = useState(Boolean(db));
   const [error, setError] = useState("");
+  const refreshVersionRef = useRef(0);
+  const deletingAccountRef = useRef(false);
   const refresh = useCallback(async () => {
+    if (deletingAccountRef.current) return;
+    const refreshVersion = ++refreshVersionRef.current;
     if (!db) {
       const fresh = demoData();
       let current: Profile | null = null;
@@ -284,9 +294,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           .from("profiles")
           .select("*")
           .eq("id", userId)
-          .single();
+          .maybeSingle();
         if (result.error) throw result.error;
-        current = await resolveProfilePhoto(profileFromRow(result.data));
+        if (result.data)
+          current = await resolveProfilePhoto(profileFromRow(result.data));
+        else await db.auth.signOut({ scope: "local" });
       }
       const results = await Promise.all([
         db.from("services").select("*").order("price"),
@@ -328,6 +340,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           note: String(b.note || ""),
         })),
       };
+      if (
+        refreshVersion !== refreshVersionRef.current ||
+        deletingAccountRef.current
+      )
+        return;
       dataRef.current = fresh;
       profileRef.current = current;
       setData(fresh);
@@ -403,7 +420,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("storage", changed);
   }, []);
   function persist(next: AppData) {
-    // Persist first so quota/privacy failures cannot be presented as a successful booking.
+    // Mirror the committed snapshot before confirming the change in the UI.
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
@@ -415,10 +432,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setData(next);
   }
   async function mutateDemo(change: (fresh: AppData) => AppData) {
-    const apply = () => persist(change(demoData()));
-    // A shared browser lock keeps simultaneous demo reservations in separate tabs atomic.
+    const apply = async () => persist(await mutateDemoStore(demoData, change));
+    // IndexedDB makes validation and writes atomic; the lock also orders mirror updates.
     if (navigator.locks) await navigator.locks.request(STORAGE_KEY, apply);
-    else apply();
+    else await apply();
+  }
+  async function resetDemo() {
+    if (db) throw new Error("Solo se pueden restablecer los datos de la demo.");
+    const clear = async () => {
+      await clearDemoStore();
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(SESSION_KEY);
+    };
+    if (navigator.locks) await navigator.locks.request(STORAGE_KEY, clear);
+    else await clear();
   }
   function requireProfile() {
     const current = profileRef.current;
@@ -591,6 +618,144 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }));
       profileRef.current = safe;
       setProfile(safe);
+    }
+  }
+  async function updateCustomer(next: Profile) {
+    requireAdmin();
+    const current = dataRef.current.profiles.find(
+      (person) => person.id === next.id,
+    );
+    if (!current) throw new Error("No se ha encontrado al cliente.");
+    const safe = editableCustomer(current, next);
+    if (db) {
+      const result = await db
+        .from("profiles")
+        .update({
+          name: safe.name,
+          bio: safe.bio,
+          preferred_style: safe.preferredStyle,
+          avatar: safe.avatar.slice(0, 2048),
+        })
+        .eq("id", current.id)
+        .eq("role", "customer")
+        .select("*")
+        .single();
+      if (result.error) throw result.error;
+      const saved = await resolveProfilePhoto(profileFromRow(result.data));
+      const updated = {
+        ...dataRef.current,
+        profiles: dataRef.current.profiles.map((person) =>
+          person.id === current.id ? saved : person,
+        ),
+      };
+      dataRef.current = updated;
+      setData(updated);
+      const previousPath = avatarObjectPath(current.avatar, current.id);
+      if (previousPath && current.avatar !== saved.avatar)
+        await db.storage.from("avatars").remove([previousPath]);
+      await refresh();
+    } else {
+      await mutateDemo((fresh) => {
+        const latest = fresh.profiles.find((person) => person.id === next.id);
+        if (!latest) throw new Error("No se ha encontrado al cliente.");
+        const changed = editableCustomer(latest, next);
+        return {
+          ...fresh,
+          profiles: fresh.profiles.map((person) =>
+            person.id === latest.id ? changed : person,
+          ),
+        };
+      });
+    }
+  }
+  async function invokeAccountDeletion(id: string) {
+    if (!db) throw new Error("La cuenta no está conectada.");
+    const result = await db.functions.invoke("delete-account", {
+      body: { userId: id, confirmation: "ELIMINAR" },
+    });
+    if (result.error) {
+      const context = (result.error as { context?: Response }).context;
+      if (context instanceof Response) {
+        const details = (await context
+          .clone()
+          .json()
+          .catch(() => null)) as { error?: string } | null;
+        if (typeof details?.error === "string") throw new Error(details.error);
+        if (context.status === 404)
+          throw new Error(
+            "El borrado de cuentas todavía no está configurado. Hay que desplegar la función delete-account en Supabase.",
+          );
+      }
+      throw new Error(
+        "No se ha podido eliminar la cuenta. Comprueba la conexión y que la función de borrado esté desplegada en Supabase.",
+      );
+    }
+    if (result.data?.deleted !== true || result.data?.userId !== id)
+      throw new Error(
+        "No se recibió la confirmación del borrado. Comprueba la cuenta antes de volver a intentarlo.",
+      );
+  }
+  async function deleteCustomer(id: string) {
+    requireAdmin();
+    const target = dataRef.current.profiles.find((person) => person.id === id);
+    if (!target || target.role !== "customer")
+      throw new Error("Solo puedes eliminar cuentas de clientes.");
+    if (db) {
+      await invokeAccountDeletion(id);
+      // Do not reintroduce the deleted customer from a request that started earlier.
+      refreshVersionRef.current += 1;
+      const updated = {
+        ...dataRef.current,
+        profiles: dataRef.current.profiles.filter((person) => person.id !== id),
+        appointments: dataRef.current.appointments.filter(
+          (appointment) => appointment.userId !== id,
+        ),
+      };
+      dataRef.current = updated;
+      setData(updated);
+      await refresh();
+    } else await mutateDemo((fresh) => removeCustomer(fresh, id));
+  }
+  async function deleteMyAccount() {
+    const current = requireProfile();
+    if (current.role !== "customer")
+      throw new Error(
+        "Las cuentas de administrador están protegidas. Gestiona las cuentas de clientes desde el panel.",
+      );
+    if (deletingAccountRef.current)
+      throw new Error("El borrado ya está en curso.");
+    deletingAccountRef.current = true;
+    refreshVersionRef.current += 1;
+    try {
+      if (db) {
+        await invokeAccountDeletion(current.id);
+        // The identity is already gone; clearing the local session must not report a failed deletion.
+        await db.auth.signOut({ scope: "local" }).catch(() => undefined);
+      } else {
+        await mutateDemo((fresh) => removeCustomer(fresh, current.id));
+        try {
+          localStorage.removeItem(SESSION_KEY);
+        } catch {
+          /* The missing profile also invalidates this session. */
+        }
+      }
+      refreshVersionRef.current += 1;
+      profileRef.current = null;
+      setProfile(null);
+      setError("");
+      if (db) {
+        // Discard all authenticated data, keeping only public shop configuration.
+        const updated = {
+          ...dataRef.current,
+          profiles: [],
+          appointments: [],
+          blocks: [],
+        };
+        dataRef.current = updated;
+        setData(updated);
+      }
+    } finally {
+      deletingAccountRef.current = false;
     }
   }
   async function bookAppointment(input: BookingInput) {
@@ -915,6 +1080,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         signInDemo,
         signOut,
         saveProfile,
+        updateCustomer,
+        deleteCustomer,
+        deleteMyAccount,
+        resetDemo,
         bookAppointment,
         updateAppointment,
         reschedule,

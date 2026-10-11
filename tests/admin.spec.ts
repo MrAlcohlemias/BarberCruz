@@ -313,3 +313,135 @@ test("edita fecha, hora y notas; conserva las condiciones de la cita y el client
   await expect(page.locator(".loyalty-bottom")).toContainText("4 de 7");
   await expect(page.locator(".loyalty-card .stamp.earned")).toHaveCount(4);
 });
+
+test("busca clientes, edita su perfil y conserva los cambios para el propio cliente", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.getByRole("tab", { name: "Clientes", exact: true }).click();
+  const search = page.getByRole("searchbox", {
+    name: "Buscar clientes por nombre o correo",
+  });
+  await expect(page.locator(".admin-client")).toHaveCount(2);
+  await expect(page.locator(".admin-clients-list")).not.toContainText("Cruz");
+  await search.fill("alex");
+  await expect(page.locator(".admin-client")).toHaveCount(1);
+  await page.getByRole("button", { name: "Editar perfil de Alex" }).click();
+  const dialog = page.getByRole("dialog", { name: "Editar cliente" });
+  await dialog.getByLabel("Nombre del cliente").fill("Alex Renovado");
+  await dialog.getByLabel("Estilo favorito").selectOption("Taper fade");
+  await dialog
+    .getByLabel("Sobre el cliente")
+    .fill("Laterales cortos, arriba largo.");
+  await dialog.getByRole("button", { name: "Avatar 👑" }).click();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await dialog
+    .getByRole("button", { name: "Guardar perfil", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText(
+    "Perfil del cliente actualizado.",
+  );
+  await expect(page.locator(".admin-client")).toContainText("Alex Renovado");
+  await expect(page.locator(".admin-client")).toContainText("Taper fade");
+  const email = await page
+    .locator(".admin-client-details > p")
+    .first()
+    .innerText();
+  await search.fill(email);
+  await expect(page.locator(".admin-client")).toHaveCount(1);
+  await search.fill("cliente inexistente");
+  await expect(page.getByText("No encontramos ese cliente")).toBeVisible();
+  await page.reload();
+  await openAdmin(page);
+  await page.getByRole("tab", { name: "Clientes", exact: true }).click();
+  await expect(
+    page.locator(".admin-client").filter({ hasText: "Alex Renovado" }),
+  ).toContainText("Taper fade");
+  await page.getByRole("button", { name: "Menú de mi cuenta" }).click();
+  await page
+    .getByRole("button", { name: "Cerrar sesión", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Entrar", exact: true })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Probar como cliente" }).click();
+  await page.getByRole("button", { name: "Menú de mi cuenta" }).click();
+  await page
+    .locator(".account-dropdown")
+    .getByRole("button", { name: "Mi perfil", exact: true })
+    .click();
+  const ownProfile = page.getByRole("dialog", { name: "Editar mi perfil" });
+  await expect(ownProfile.getByLabel("Tu nombre")).toHaveValue("Alex Renovado");
+  await expect(ownProfile.getByLabel("Tu estilo favorito")).toHaveValue(
+    "Taper fade",
+  );
+  await expect(ownProfile.getByLabel("Un poco sobre ti")).toHaveValue(
+    "Laterales cortos, arriba largo.",
+  );
+  await expect(
+    ownProfile.getByRole("button", { name: "Avatar 👑" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("elimina un cliente solo tras confirmar y borra también sus citas y puntos", async ({
+  page,
+}) => {
+  await seedAppointments(page);
+  await page.getByRole("tab", { name: "Clientes", exact: true }).click();
+  await page.getByRole("button", { name: "Eliminar cuenta de Alex" }).click();
+  let dialog = page.getByRole("dialog", { name: "Eliminar cliente" });
+  const deletion = dialog.getByRole("button", {
+    name: "Eliminar cuenta definitivamente",
+  });
+  await expect(deletion).toBeDisabled();
+  await dialog.getByLabel("Escribe ELIMINAR para confirmar").fill("eliminar");
+  await expect(deletion).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(".admin-client")).toHaveCount(2);
+  await page.getByRole("button", { name: "Eliminar cuenta de Alex" }).click();
+  dialog = page.getByRole("dialog", { name: "Eliminar cliente" });
+  await dialog.getByLabel("Escribe ELIMINAR para confirmar").fill("ELIMINAR");
+  await dialog
+    .getByRole("button", { name: "Eliminar cuenta definitivamente" })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText(
+    "Cuenta del cliente eliminada.",
+  );
+  await expect(page.locator(".admin-client")).toHaveCount(1);
+  await expect(page.locator(".admin-client")).toContainText("Dani");
+  expect(
+    await page.evaluate(() => {
+      const data = JSON.parse(
+        localStorage.getItem("barbercruz.demo.v1")!,
+      ) as AppData;
+      return {
+        profileExists: data.profiles.some(
+          (profile) => profile.id === "demo-customer",
+        ),
+        appointmentsExist: data.appointments.some(
+          (appointment) => appointment.userId === "demo-customer",
+        ),
+        adminExists: data.profiles.some((profile) => profile.role === "admin"),
+      };
+    }),
+  ).toEqual({
+    profileExists: false,
+    appointmentsExist: false,
+    adminExists: true,
+  });
+  await page.reload();
+  await openAdmin(page);
+  await page.getByRole("tab", { name: "Clientes", exact: true }).click();
+  await expect(page.locator(".admin-client")).toHaveCount(1);
+  await page.getByRole("tab", { name: "Agenda", exact: true }).click();
+  await page.getByLabel("Mostrar fechas").selectOption("all");
+  await expect(page.locator(".admin-agenda-card")).not.toContainText("Alex");
+});
