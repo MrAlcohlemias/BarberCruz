@@ -138,6 +138,8 @@ Los pagos no se procesan en la web: «pagado» representa un corte normal comple
 
 El administrador puede subir y eliminar fotos desde **Administración → Galería**. El carrusel de la portada permanece oculto mientras no haya ninguna foto publicada; al subir la primera aparece y al eliminar la última vuelve a ocultarse. No se incluyen fotos de ejemplo.
 
+Las imágenes se muestran en marcos pequeños y se amplían con un recorte centrado para llenarlos. La vista previa del administrador usa el mismo encuadre. Con dos o más fotos el carrusel avanza automáticamente cada cuatro segundos y continúa de la última a la primera. Se puede pausar o recorrer con las flechas y deslizando en móvil. El avance automático se detiene mientras se interactúa, cuando no está visible o si el dispositivo tiene activada la opción de reducir movimiento. Este ajuste de presentación no requiere volver a ejecutar el SQL si la galería ya estaba activada.
+
 1. Abre tu proyecto de Supabase y entra en **SQL Editor → New query**.
 2. Abre [gallery.sql](gallery.sql), copia **todo su contenido**, pégalo en la consulta y pulsa **Run**. Es una migración que se puede repetir: añade la tabla `gallery_photos`, el bucket público `haircuts`, sus permisos y la publicación de cambios sin borrar cuentas, citas ni fotos anteriores.
 3. Comprueba que aparece `gallery_photos` en **Table Editor** y `haircuts` en **Storage**. El bucket debe indicar que es **Public**. No cambies a público el bucket `avatars`: los perfiles siguen siendo privados.
