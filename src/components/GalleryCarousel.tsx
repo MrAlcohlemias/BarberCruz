@@ -10,7 +10,7 @@ import type { KeyboardEvent } from "react";
 import type { GalleryPhoto } from "../lib/types";
 import "./gallery.css";
 
-const PIXELS_PER_SECOND = 20;
+const PIXELS_PER_SECOND = 23;
 const INTERACTION_DELAY = 1600;
 
 function trackMeasurements(track: HTMLDivElement, count: number) {
