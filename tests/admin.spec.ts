@@ -1,0 +1,252 @@
+import { test, expect } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import type { AppData } from "../src/lib/types";
+
+async function openAdmin(page: Page) {
+  await page.getByRole("button", { name: "Menú de mi cuenta" }).click();
+  await page.getByRole("button", { name: "Administrar barbería" }).click();
+  await expect(
+    page.getByRole("tab", { name: "Agenda", exact: true }),
+  ).toBeVisible();
+}
+
+async function seedAppointments(page: Page) {
+  const dates = await page.evaluate(() => {
+    const key = "barbercruz.demo.v1";
+    const data = JSON.parse(localStorage.getItem(key)!) as AppData;
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: data.settings.timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const value = (name: string) =>
+      parts.find((part) => part.type === name)!.value;
+    const current = `${value("year")}-${value("month")}-${value("day")}`;
+    const add = (date: string, days: number) => {
+      const next = new Date(`${date}T12:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + days);
+      return next.toISOString().slice(0, 10);
+    };
+    let future = add(current, 1);
+    while (
+      !data.settings.openingHours[new Date(`${future}T12:00:00Z`).getUTCDay()]
+        ?.open
+    ) {
+      future = add(future, 1);
+    }
+    const past = add(current, -1);
+    data.appointments.push(
+      ...[
+        {
+          id: "admin-test-move",
+          userId: "demo-customer",
+          date: future,
+          time: "11:00",
+        },
+        {
+          id: "admin-test-cancel",
+          userId: "demo-dani",
+          date: future,
+          time: "12:30",
+        },
+        {
+          id: "admin-test-complete",
+          userId: "demo-customer",
+          date: past,
+          time: "09:00",
+        },
+      ].map((appointment) => ({
+        ...appointment,
+        serviceId: "cut",
+        duration: 45,
+        price: 7,
+        status: "confirmed" as const,
+        redemption: false,
+        note: "Cita de prueba del panel",
+        createdAt: new Date().toISOString(),
+      })),
+    );
+    localStorage.setItem(key, JSON.stringify(data));
+    return { future, past };
+  });
+  await page.reload();
+  await openAdmin(page);
+  return dates;
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("Demo local", { exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Entrar", exact: true })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: "Explorar el panel de administración" })
+    .click();
+  await openAdmin(page);
+});
+
+test("edita servicios, conserva cambios al recargar y respeta precios de citas existentes", async ({
+  page,
+}) => {
+  const { past } = await seedAppointments(page);
+  await page.getByRole("tab", { name: "Servicios", exact: true }).click();
+  await page
+    .getByLabel("Nombre del servicio", { exact: true })
+    .fill("Corte a tu estilo");
+  await page.getByLabel("Precio (€)", { exact: true }).fill("8.50");
+  await page.getByLabel("Duración (min)", { exact: true }).fill("60");
+  await page.getByRole("button", { name: "Guardar servicios" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Servicios actualizados.",
+  );
+  await page.reload();
+  await openAdmin(page);
+  await page.getByRole("tab", { name: "Servicios", exact: true }).click();
+  await expect(
+    page.getByLabel("Nombre del servicio", { exact: true }),
+  ).toHaveValue("Corte a tu estilo");
+  await expect(page.getByLabel("Precio (€)", { exact: true })).toHaveValue(
+    "8.5",
+  );
+  await expect(page.getByLabel("Duración (min)", { exact: true })).toHaveValue(
+    "60",
+  );
+  await page.getByRole("tab", { name: "Agenda", exact: true }).click();
+  await page.getByLabel("Fecha de agenda").fill(past);
+  const appointment = page
+    .locator(".admin-appointment")
+    .filter({ hasText: "09:00" });
+  await expect(appointment.locator(".admin-appt-details")).toContainText("7 €");
+  await appointment
+    .getByRole("button", { name: "Completar", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("Cita completada.");
+  await expect(
+    page.locator(".admin-stats>div").nth(2).locator("strong"),
+  ).toHaveText("7 €");
+});
+
+test("guarda turnos, rechaza horarios y bloqueos inválidos y permite eliminar descansos", async ({
+  page,
+}) => {
+  const { future } = await seedAppointments(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: "Horarios", exact: true }).click();
+  await page.getByRole("button", { name: "Mañanas", exact: true }).click();
+  await page.getByRole("button", { name: "Guardar horarios" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Horarios y preferencias guardados.",
+  );
+  expect(
+    await page.evaluate(() => {
+      const hours = (
+        JSON.parse(localStorage.getItem("barbercruz.demo.v1")!) as AppData
+      ).settings.openingHours;
+      return (
+        hours[1].start === "10:00" && hours[1].end === "14:00" && !hours[0].open
+      );
+    }),
+  ).toBe(true);
+  await page.getByLabel("Cierre del lunes").fill("09:00");
+  await page.getByRole("button", { name: "Guardar horarios" }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "La hora de cierre debe ser posterior",
+  );
+  await page.getByLabel("Cierre del lunes").fill("14:00");
+  const block = page.locator(".admin-block-form");
+  await block.getByLabel("Fecha", { exact: true }).fill(future);
+  await block.getByLabel("Desde", { exact: true }).fill("11:00");
+  await block.getByLabel("Hasta", { exact: true }).fill("11:30");
+  await block.getByRole("button", { name: "Bloquear", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Hay una cita en ese intervalo",
+  );
+  await block.getByLabel("Desde", { exact: true }).fill("13:30");
+  await block.getByLabel("Hasta", { exact: true }).fill("14:00");
+  await block.getByLabel("Motivo (opcional)", { exact: true }).fill("Descanso");
+  await block.getByRole("button", { name: "Bloquear", exact: true }).click();
+  await expect(page.locator(".admin-block-list")).toContainText("Descanso");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: `Eliminar bloqueo del ${future} a las 13:30` })
+    .click();
+  await expect(page.getByRole("status")).toContainText("Bloqueo eliminado.");
+  await expect(page.locator(".admin-block-list")).toHaveCount(0);
+});
+
+test("reprograma, cancela y completa citas; el cliente recibe su sello", async ({
+  page,
+}) => {
+  const { future, past } = await seedAppointments(page);
+  await page.getByRole("tab", { name: "Servicios", exact: true }).click();
+  await page.getByLabel("Duración (min)", { exact: true }).fill("60");
+  await page.getByRole("button", { name: "Guardar servicios" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Servicios actualizados.",
+  );
+  await page.getByRole("tab", { name: "Agenda", exact: true }).click();
+  await page.getByLabel("Mostrar fechas").selectOption("upcoming");
+  const appointment = page
+    .locator(".admin-appointment")
+    .filter({ hasText: "11:00" });
+  await expect(
+    appointment.getByRole("button", { name: "Completar", exact: true }),
+  ).toBeDisabled();
+  await appointment.getByRole("button", { name: "Mover", exact: true }).click();
+  let dialog = page.getByRole("dialog", { name: "Un nuevo hueco" });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    appointment.getByRole("button", { name: "Mover", exact: true }),
+  ).toBeFocused();
+  await appointment.getByRole("button", { name: "Mover", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "Un nuevo hueco" });
+  await dialog.getByLabel("Nueva fecha").fill(future);
+  await dialog.getByLabel("Hora disponible").selectOption("11:45");
+  await dialog.getByRole("button", { name: "Guardar nueva cita" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.locator(".admin-appointment").filter({ hasText: "11:45" }),
+  ).toContainText("Alex");
+  await page.getByRole("button", { name: "Cancelar cita de Dani" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Sí, cancelar cita" })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page
+      .locator(".admin-appointment")
+      .filter({ hasText: "Dani" })
+      .locator(".admin-status"),
+  ).toHaveText("Cancelada");
+  await page.getByLabel("Fecha de agenda").fill(past);
+  await page
+    .locator(".admin-appointment")
+    .filter({ hasText: "09:00" })
+    .getByRole("button", { name: "Completar", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("Cita completada.");
+  await page.getByRole("button", { name: "Menú de mi cuenta" }).click();
+  await page
+    .getByRole("button", { name: "Cerrar sesión", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Entrar", exact: true })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Probar como cliente" }).click();
+  await page
+    .getByRole("button", { name: "Club Cruz", exact: false })
+    .first()
+    .click();
+  await expect(page.locator(".loyalty-bottom")).toContainText("4 de 7");
+  await expect(page.locator(".loyalty-card .stamp.earned")).toHaveCount(4);
+});
