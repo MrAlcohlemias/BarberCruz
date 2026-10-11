@@ -1852,8 +1852,8 @@ export default function App() {
               </div>
               <div className="hero-photo">
                 <img
-                  src="/barber-hero.png"
-                  alt="Detalle de un degradado durante un corte de pelo, imagen de ambiente"
+                  src="/barber-hero.jpg"
+                  alt="Abel, de Barber Cruz, cortando el pelo a un cliente"
                   fetchPriority="high"
                 />
                 <div className="photo-shade" />

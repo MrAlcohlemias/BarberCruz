@@ -628,14 +628,14 @@ main {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 57% 50%;
+  object-position: 50% 10%;
 }
 .photo-shade {
   position: absolute;
   inset: 0;
   background: linear-gradient(
     180deg,
-    #13150e32 0%,
+    #080808b3 0%,
     transparent 50%,
     #151710ad 100%
   );
@@ -676,7 +676,7 @@ main {
   background: var(--surface-raised);
   color: var(--lime);
   position: absolute;
-  right: 21px;
+  left: 21px;
   top: 95px;
   transform: rotate(14deg);
   box-shadow: 0 0 0 5px #ffffff0a;
@@ -2418,9 +2418,6 @@ main {
     height: 320px;
     border-radius: 14px;
   }
-  .hero-photo > img {
-    object-position: 50% 48%;
-  }
   .hero-photo-top {
     top: 21px;
     left: 21px;
@@ -2441,7 +2438,7 @@ main {
     width: 88px;
     height: 88px;
     top: 63px;
-    right: 20px;
+    left: 20px;
     background: var(--surface-raised);
     color: var(--lime);
     box-shadow: 0 0 0 5px #ffffff0a;

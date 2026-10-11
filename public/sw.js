@@ -1,5 +1,5 @@
 // Cache only the public app shell. Auth, API responses and bookings always use the network.
-const CACHE = "barber-cruz-v2";
+const CACHE = "barber-cruz-v3";
 const SHELL = [
   "/",
   "/index.html",
@@ -7,7 +7,7 @@ const SHELL = [
   "/icon-192.png",
   "/icon-512.png",
   "/manifest.webmanifest",
-  "/barber-hero.png",
+  "/barber-hero.jpg",
 ];
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));

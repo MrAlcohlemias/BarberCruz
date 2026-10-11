@@ -64,6 +64,6 @@ En **Mi perfil → Elegir de la galería**, puedes seleccionar una foto JPG, PNG
 
 En **Mi perfil → Eliminar mi cuenta**, un cliente puede borrar su cuenta de Barber Cruz escribiendo `ELIMINAR`. Se eliminan su identidad de acceso en este proyecto, las fotos subidas, todas sus citas y los puntos. Su cuenta de Google permanece. El administrador puede eliminar cuentas de clientes desde **Clientes**; las cuentas administrativas están protegidas frente a este borrado. Para activar la eliminación real, vuelve a ejecutar el esquema actualizado y despliega la Edge Function `delete-account` siguiendo [la guía de Supabase](supabase/README.md). Su clave privilegiada solo se usa dentro de Supabase, nunca en la web. En la demo se borran únicamente los datos locales del cliente.
 
-La fotografía de portada es una imagen de ambiente generada para el diseño; no representa a tu amigo ni su habitación. Puede sustituirse por una fotografía real en `public/barber-hero.png`. El enlace de Instagram corresponde a **@_barbercruz_**.
+La fotografía de portada es la foto real de Abel cortando el pelo, facilitada por el propietario del proyecto y guardada en `public/barber-hero.jpg`. El encuadre se adapta a escritorio y móvil. El enlace de Instagram corresponde a **@_barbercruz_**.
 
 La página de privacidad explica el uso básico de los datos y la eliminación de la cuenta. Antes de compartir la web, completa la información del responsable y su canal de contacto con los datos reales del barbero.
