@@ -251,7 +251,9 @@ export default function GalleryPanel({
                 decoding="async"
               />
               <div className="gallery-admin-photo-footer">
-                <p>{photo.caption || "Sin descripción"}</p>
+                <p title={photo.caption || "Sin descripción"}>
+                  {photo.caption || "Sin descripción"}
+                </p>
                 <button
                   className="gallery-delete-button"
                   type="button"
